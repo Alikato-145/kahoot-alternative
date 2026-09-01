@@ -1,0 +1,28 @@
+# Task 1 report
+
+## Status
+
+Implemented the Task 1 runtime foundation in the feature worktree.
+
+## Changes
+
+- Added Zod-backed `loadConfig` with required `DATABASE_URL` and `REDIS_URL`, plus defaults for media root, public URL, and port.
+- Added Vitest config, shared test setup, and the missing-database URL contract test.
+- Added MySQL 8.4 and Redis 7 Docker Compose services with named volumes, ports, and MySQL healthcheck.
+- Added `.env.example` for the five runtime variables.
+- Replaced the development/start/test/migration/e2e scripts and added requested runtime/test dependencies.
+- Added Next external-package handling for server-side MySQL/Redis packages.
+- Removed the Supabase package and legacy Supabase source/config/migrations.
+- Ignored `.superpowers/` and local `media/`.
+
+## Verification
+
+- `node -e` JSON validation for `package.json` and `package-lock.json`: passed.
+- `npm run test -- tests/config.test.ts`: blocked by the machine npm launcher/dependency installation state; Vitest is not installed.
+- `npx vitest run tests/config.test.ts`: blocked; npm launcher did not complete.
+- `npx tsc --noEmit`: ran and reported pre-existing legacy app implicit-any errors, missing deleted Supabase type import, and missing Vitest types because dependencies are not installed.
+- Offline lockfile refresh was attempted but npm reported uncached registry packages.
+
+## Concerns
+
+The current legacy pages still import Supabase and contain strict TypeScript errors; later migration tasks need to replace those pages before the full typecheck can pass. The sandbox npm client could not fetch/install the newly declared packages, so `package-lock.json` could not be fully regenerated for all added dependencies.
