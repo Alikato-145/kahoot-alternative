@@ -42,3 +42,8 @@ The current legacy pages still import Supabase and contain strict TypeScript err
 - Replaced the legacy dashboard's backend calls with a runnable Thai placeholder screen; it no longer invokes a nonexistent client backend.
 - Removed network-dependent `next/font` usage so production builds work offline.
 - Verification: config tests (3 passed), TypeScript check (pass), and production build (pass; existing outdated Browserslist and ESLint-config warnings remain non-fatal).
+
+## Round 3 fix report
+
+- Added `dotenv/config` to the migration entrypoint before `loadConfig`, matching the custom server startup path.
+- Verified the real `npm run db:migrate` command with `.env`-equivalent environment values; it loads configuration and exits successfully with the Task 1 placeholder migration message.

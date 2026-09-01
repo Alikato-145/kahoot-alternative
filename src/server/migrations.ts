@@ -1,3 +1,4 @@
+import 'dotenv/config'
 import { loadConfig } from './config'
 
 // Migration runner is established here for later schema migrations.
