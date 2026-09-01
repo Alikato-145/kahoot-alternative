@@ -1,12 +1,10 @@
 import type { Metadata } from 'next'
-import { Inter } from 'next/font/google'
 import '../../globals.css'
 import Link from 'next/link'
 
-const inter = Inter({ subsets: ['latin'] })
 
 export const metadata: Metadata = {
-  title: 'SupaQuiz',
+  title: 'Camp Quiz',
   description: 'Thai camp quiz host dashboard',
 }
 
@@ -65,7 +63,7 @@ export default function RootLayout({
   return (
     <>
       <header className="h-16 px-2 flex justify-between border-b border-gray-200 items-center">
-        <h1>SupaQuiz</h1>
+        <h1>Camp Quiz</h1>
       </header>
       <div className="flex">
         <nav className="border-r border-r-gray-200">

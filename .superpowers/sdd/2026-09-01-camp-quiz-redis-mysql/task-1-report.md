@@ -34,3 +34,11 @@ The current legacy pages still import Supabase and contain strict TypeScript err
 - Added executable `server.ts` and migration-runner entrypoint so every declared script resolves.
 - Added Redis-required, defaults, and port-coercion config tests.
 - Installed dependencies with `npm ci --ignore-scripts` and verified `npm run test -- tests/config.test.ts` (3 passed) and `tsc --noEmit` (pass).
+
+## Round 2 fix report
+
+- Removed the remaining tracked `supabase/.gitignore` artifact.
+- Added `dotenv` and imported `dotenv/config` before `server.ts` loads configuration, so both `dev` and `start` scripts read `.env`.
+- Replaced the legacy dashboard's backend calls with a runnable Thai placeholder screen; it no longer invokes a nonexistent client backend.
+- Removed network-dependent `next/font` usage so production builds work offline.
+- Verification: config tests (3 passed), TypeScript check (pass), and production build (pass; existing outdated Browserslist and ESLint-config warnings remain non-fatal).

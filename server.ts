@@ -1,3 +1,4 @@
+import 'dotenv/config'
 import http from 'node:http'
 import next from 'next'
 import { loadConfig } from './src/server/config'
