@@ -80,7 +80,19 @@ describe('quiz repository', () => {
     )
 
     await expect(updateQuiz(created.id, { title: 'แก้ไขไม่ได้', description: '', questions: [questionInput] }))
-      .rejects.toThrow('cannot be updated after a completed session')
+      .rejects.toThrow('cannot be updated while a game session exists')
     expect((await getQuiz(created.id))?.title).toBe('ประวัติ')
+  })
+
+  it('does not replace questions for a quiz with an active game session', async () => {
+    const created = await createQuiz({ title: 'กำลังเล่น', description: '', questions: [questionInput] })
+    await query(
+      'INSERT INTO game_sessions (id, quiz_id, pin, status) VALUES (?, ?, ?, ?)',
+      [randomUUID(), created.id, String(Math.floor(Math.random() * 1_000_000)).padStart(6, '0'), 'active'],
+    )
+
+    await expect(updateQuiz(created.id, { title: 'แก้ไขไม่ได้', description: '', questions: [questionInput] }))
+      .rejects.toThrow('cannot be updated while a game session exists')
+    expect((await getQuiz(created.id))?.title).toBe('กำลังเล่น')
   })
 })
