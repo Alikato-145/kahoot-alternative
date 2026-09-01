@@ -55,6 +55,13 @@ async function writeQuiz(id: string, input: QuizInput, isUpdate: boolean): Promi
   assertValidQuizInput(input)
   await transaction(async (connection) => {
     if (isUpdate) {
+      const [completedSessions] = await connection.execute<RowDataPacket[]>(
+        'SELECT 1 FROM game_sessions WHERE quiz_id = ? AND completed_at IS NOT NULL LIMIT 1 FOR UPDATE',
+        [id],
+      )
+      if (completedSessions.length > 0) {
+        throw new Error(`Quiz cannot be updated after a completed session: ${id}`)
+      }
       const [result] = await connection.execute<ResultSetHeader>('UPDATE quizzes SET title = ?, description = ?, cover_image_url = ? WHERE id = ?', [input.title, input.description, input.coverImageUrl ?? null, id])
       if (result.affectedRows === 0) throw new Error(`Quiz not found: ${id}`)
       await connection.execute('DELETE FROM questions WHERE quiz_id = ?', [id])

@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { createQuiz, getQuiz } from '@/server/repositories/quizzes'
+import { randomUUID } from 'node:crypto'
+import { createQuiz, getQuiz, listQuizzes, updateQuiz } from '@/server/repositories/quizzes'
+import { query } from '@/server/db'
 
 process.env.DATABASE_URL ??= 'mysql://campquiz:campquiz@localhost:3306/camp_quiz'
 process.env.REDIS_URL ??= 'redis://localhost:6379'
@@ -33,5 +35,52 @@ describe('quiz repository', () => {
     const loaded = await getQuiz(quiz.id)
 
     expect(loaded?.questions[0]?.choices.map((choice) => choice.position)).toEqual([0, 1, 2, 3])
+  })
+
+  it('lists saved quizzes and returns an updated quiz', async () => {
+    const created = await createQuiz({ title: 'ก่อนแก้ไข', description: '', questions: [questionInput] })
+    const updated = await updateQuiz(created.id, {
+      title: 'หลังแก้ไข',
+      description: 'รายละเอียดใหม่',
+      questions: [{ ...questionInput, body: 'คำถามใหม่' }],
+    })
+
+    expect((await listQuizzes()).map((quiz) => quiz.id)).toContain(created.id)
+    expect(updated).toMatchObject({ id: created.id, title: 'หลังแก้ไข', description: 'รายละเอียดใหม่' })
+    expect(updated.questions[0]?.body).toBe('คำถามใหม่')
+  })
+
+  it('does not change a quiz when an update targets a missing quiz', async () => {
+    await expect(updateQuiz('00000000-0000-0000-0000-000000000000', {
+      title: 'ไม่มี', description: '', questions: [questionInput],
+    })).rejects.toThrow('Quiz not found')
+  })
+
+  it('rolls back an update when a choice insert fails', async () => {
+    const created = await createQuiz({ title: 'ก่อน', description: '', questions: [questionInput] })
+    const duplicateChoiceId = randomUUID()
+
+    await expect(updateQuiz(created.id, {
+      title: 'หลัง',
+      description: '',
+      questions: [{
+        ...questionInput,
+        choices: questionInput.choices.map((choice) => ({ ...choice, id: duplicateChoiceId })),
+      }],
+    })).rejects.toThrow()
+
+    expect((await getQuiz(created.id))?.title).toBe('ก่อน')
+  })
+
+  it('does not replace questions for a quiz with a completed game session', async () => {
+    const created = await createQuiz({ title: 'ประวัติ', description: '', questions: [questionInput] })
+    await query(
+      'INSERT INTO game_sessions (id, quiz_id, pin, status, completed_at) VALUES (?, ?, ?, ?, NOW())',
+      [randomUUID(), created.id, String(Math.floor(Math.random() * 1_000_000)).padStart(6, '0'), 'completed'],
+    )
+
+    await expect(updateQuiz(created.id, { title: 'แก้ไขไม่ได้', description: '', questions: [questionInput] }))
+      .rejects.toThrow('cannot be updated after a completed session')
+    expect((await getQuiz(created.id))?.title).toBe('ประวัติ')
   })
 })

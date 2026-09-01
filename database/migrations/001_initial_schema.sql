@@ -40,7 +40,7 @@ CREATE TABLE game_sessions (
   started_at TIMESTAMP NULL,
   completed_at TIMESTAMP NULL,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  CONSTRAINT fk_game_sessions_quiz FOREIGN KEY (quiz_id) REFERENCES quizzes(id) ON DELETE CASCADE,
+  CONSTRAINT fk_game_sessions_quiz FOREIGN KEY (quiz_id) REFERENCES quizzes(id) ON DELETE RESTRICT,
   CONSTRAINT uq_game_sessions_pin UNIQUE (pin)
 );
 
