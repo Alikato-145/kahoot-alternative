@@ -7,7 +7,7 @@ import {
   Participant,
   Question,
   QuizSet,
-  supabase,
+  legacyBackend,
 } from '@/types/types'
 import { useEffect, useState } from 'react'
 import Lobby from './lobby'
@@ -35,7 +35,7 @@ export default function Home({
 
   useEffect(() => {
     const getQuestions = async () => {
-      const { data: gameData, error: gameError } = await supabase
+      const { data: gameData, error: gameError } = await legacyBackend
         .from('games')
         .select()
         .eq('id', gameId)
@@ -45,7 +45,7 @@ export default function Home({
         alert('Error getting game data')
         return
       }
-      const { data, error } = await supabase
+      const { data, error } = await legacyBackend
         .from('quiz_sets')
         .select(`*, questions(*, choices(*))`)
         .eq('id', gameData.quiz_set_id)
@@ -63,14 +63,14 @@ export default function Home({
     }
 
     const setGameListner = async () => {
-      const { data } = await supabase
+      const { data } = await legacyBackend
         .from('participants')
         .select()
         .eq('game_id', gameId)
         .order('created_at')
       if (data) setParticipants(data)
 
-      supabase
+      legacyBackend
         .channel('game')
         .on(
           'postgres_changes',
@@ -80,7 +80,7 @@ export default function Home({
             table: 'participants',
             filter: `game_id=eq.${gameId}`,
           },
-          (payload) => {
+          (payload: any) => {
             setParticipants((currentParticipants) => {
               return [...currentParticipants, payload.new as Participant]
             })
@@ -94,7 +94,7 @@ export default function Home({
             table: 'games',
             filter: `id=eq.${gameId}`,
           },
-          (payload) => {
+          (payload: any) => {
             // start the quiz game
             const game = payload.new as Game
             setCurrentQuestionSequence(game.current_question_sequence)
@@ -103,7 +103,7 @@ export default function Home({
         )
         .subscribe()
 
-      const { data: gameData, error: gameError } = await supabase
+      const { data: gameData, error: gameError } = await legacyBackend
         .from('games')
         .select()
         .eq('id', gameId)

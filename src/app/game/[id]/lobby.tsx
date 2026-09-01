@@ -1,4 +1,4 @@
-import { Participant, supabase } from '@/types/types'
+import { Participant, legacyBackend } from '@/types/types'
 import { on } from 'events'
 import { FormEvent, useEffect, useState } from 'react'
 
@@ -16,12 +16,12 @@ export default function Lobby({
       let userId: string | null = null
 
       const { data: sessionData, error: sessionError } =
-        await supabase.auth.getSession()
+        await legacyBackend.auth.getSession()
 
       if (sessionData.session) {
         userId = sessionData.session?.user.id ?? null
       } else {
-        const { data, error } = await supabase.auth.signInAnonymously()
+        const { data, error } = await legacyBackend.auth.signInAnonymously()
         if (error) console.error(error)
         userId = data?.user?.id ?? null
       }
@@ -30,7 +30,7 @@ export default function Lobby({
         return
       }
 
-      const { data: participantData, error } = await supabase
+      const { data: participantData, error } = await legacyBackend
         .from('participants')
         .select()
         .eq('game_id', gameId)
@@ -92,7 +92,7 @@ function Register({
     if (!nickname) {
       return
     }
-    const { data: participant, error } = await supabase
+    const { data: participant, error } = await legacyBackend
       .from('participants')
       .insert({ nickname, game_id: gameId })
       .select()

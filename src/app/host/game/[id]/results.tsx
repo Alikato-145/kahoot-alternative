@@ -4,7 +4,7 @@ import {
   Participant,
   Question,
   QuizSet,
-  supabase,
+  legacyBackend,
 } from '@/types/types'
 import { useEffect, useState } from 'react'
 import Confetti from 'react-confetti'
@@ -24,7 +24,7 @@ export default function Results({
 
   useEffect(() => {
     const getResults = async () => {
-      const { data, error } = await supabase
+      const { data, error } = await legacyBackend
         .from('game_results')
         .select()
         .eq('game_id', gameId)

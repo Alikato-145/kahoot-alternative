@@ -1,8 +1,8 @@
 'use client'
 
 import React, { FormEvent, useEffect, useRef, useState } from 'react'
-import { RealtimeChannel } from '@supabase/supabase-js'
-import { Choice, Game, Participant, Question, supabase } from '@/types/types'
+type RealtimeChannel = any
+import { Choice, Game, Participant, Question, legacyBackend } from '@/types/types'
 import Lobby from './lobby'
 import Quiz from './quiz'
 
@@ -36,7 +36,7 @@ export default function Home({
   const [isAnswerRevealed, setIsAnswerRevealed] = useState(false)
 
   const getGame = async () => {
-    const { data: game } = await supabase
+    const { data: game } = await legacyBackend
       .from('games')
       .select()
       .eq('id', gameId)
@@ -52,7 +52,7 @@ export default function Home({
   }
 
   const getQuestions = async (quizSetId: string) => {
-    const { data, error } = await supabase
+    const { data, error } = await legacyBackend
       .from('questions')
       .select(`*, choices(*)`)
       .eq('quiz_set_id', quizSetId)
@@ -66,7 +66,7 @@ export default function Home({
 
   useEffect(() => {
     const setGameListner = (): RealtimeChannel => {
-      return supabase
+      return legacyBackend
         .channel('game_participant')
         .on(
           'postgres_changes',
@@ -76,7 +76,7 @@ export default function Home({
             table: 'games',
             filter: `id=eq.${gameId}`,
           },
-          (payload) => {
+          (payload: any) => {
             if (!stateRef.current) return
 
             // start the quiz game
@@ -96,7 +96,7 @@ export default function Home({
 
     const gameChannel = setGameListner()
     return () => {
-      supabase.removeChannel(gameChannel)
+      legacyBackend.removeChannel(gameChannel)
     }
   }, [gameId])
 

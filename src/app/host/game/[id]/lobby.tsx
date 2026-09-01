@@ -1,4 +1,4 @@
-import { Participant, supabase } from '@/types/types'
+import { Participant, legacyBackend } from '@/types/types'
 import { useQRCode } from 'next-qrcode'
 
 export default function Lobby({
@@ -11,7 +11,7 @@ export default function Lobby({
   const { Canvas } = useQRCode()
 
   const onClickStartGame = async () => {
-    const { data, error } = await supabase
+    const { data, error } = await legacyBackend
       .from('games')
       .update({ phase: 'quiz' })
       .eq('id', gameId)

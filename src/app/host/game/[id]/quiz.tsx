@@ -1,5 +1,5 @@
 import { TIME_TIL_CHOICE_REVEAL } from '@/constants'
-import { Answer, Participant, Question, supabase } from '@/types/types'
+import { Answer, Participant, Question, legacyBackend } from '@/types/types'
 import { useEffect, useRef, useState } from 'react'
 import { CountdownCircleTimer } from 'react-countdown-circle-timer'
 
@@ -35,7 +35,7 @@ export default function Quiz({
       }
     }
 
-    const { data, error } = await supabase
+    const { data, error } = await legacyBackend
       .from('games')
       .update(updateData)
       .eq('id', gameId)
@@ -46,7 +46,7 @@ export default function Quiz({
 
   const onTimeUp = async () => {
     setIsAnswerRevealed(true)
-    await supabase
+    await legacyBackend
       .from('games')
       .update({
         is_answer_revealed: true,
@@ -63,7 +63,7 @@ export default function Quiz({
       setHasShownChoices(true)
     }, TIME_TIL_CHOICE_REVEAL)
 
-    const channel = supabase
+    const channel = legacyBackend
       .channel('answers')
       .on(
         'postgres_changes',
@@ -73,7 +73,7 @@ export default function Quiz({
           table: 'answers',
           filter: `question_id=eq.${question.id}`,
         },
-        (payload) => {
+        (payload: any) => {
           setAnswers((currentAnswers) => {
             return [...currentAnswers, payload.new as Answer]
           })
@@ -89,7 +89,7 @@ export default function Quiz({
       .subscribe()
 
     return () => {
-      supabase.removeChannel(channel)
+      legacyBackend.removeChannel(channel)
     }
   }, [question.id])
 

@@ -26,3 +26,11 @@ Implemented the Task 1 runtime foundation in the feature worktree.
 ## Concerns
 
 The current legacy pages still import Supabase and contain strict TypeScript errors; later migration tasks need to replace those pages before the full typecheck can pass. The sandbox npm client could not fetch/install the newly declared packages, so `package-lock.json` could not be fully regenerated for all added dependencies.
+
+## Review fix report
+
+- Regenerated the lockfile from the updated manifest; its root and package entries now include all Task 1 dependencies and no Supabase package.
+- Removed legacy Supabase imports, environment reads, generated types, and metadata branding while retaining temporary local contracts for pages migrated in later tasks.
+- Added executable `server.ts` and migration-runner entrypoint so every declared script resolves.
+- Added Redis-required, defaults, and port-coercion config tests.
+- Installed dependencies with `npm ci --ignore-scripts` and verified `npm run test -- tests/config.test.ts` (3 passed) and `tsc --noEmit` (pass).

@@ -1,5 +1,5 @@
 import { QUESTION_ANSWER_TIME, TIME_TIL_CHOICE_REVEAL } from '@/constants'
-import { Choice, Question, supabase } from '@/types/types'
+import { Choice, Question, legacyBackend } from '@/types/types'
 import { useState, useEffect } from 'react'
 import { ColorFormat, CountdownCircleTimer } from 'react-countdown-circle-timer'
 
@@ -39,7 +39,7 @@ export default function Quiz({
           ) * 1000
         )
 
-    const { error } = await supabase.from('answers').insert({
+    const { error } = await legacyBackend.from('answers').insert({
       participant_id: playerId,
       question_id: question.id,
       choice_id: choice.id,

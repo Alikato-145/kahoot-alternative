@@ -1,6 +1,6 @@
 'use client'
 
-import { QuizSet, supabase } from '@/types/types'
+import { QuizSet, legacyBackend } from '@/types/types'
 import { useEffect, useState } from 'react'
 
 export default function Home() {
@@ -8,7 +8,7 @@ export default function Home() {
 
   useEffect(() => {
     const getQuizSets = async () => {
-      const { data, error } = await supabase
+      const { data, error } = await legacyBackend
         .from('quiz_sets')
         .select(`*, questions(*, choices(*))`)
         .order('created_at', { ascending: false })
@@ -23,13 +23,13 @@ export default function Home() {
 
   const startGame = async (quizSetId: string) => {
     const { data: sessionData, error: sessionError } =
-      await supabase.auth.getSession()
+      await legacyBackend.auth.getSession()
 
     if (!sessionData.session) {
-      await supabase.auth.signInAnonymously()
+      await legacyBackend.auth.signInAnonymously()
     }
 
-    const { data, error } = await supabase
+    const { data, error } = await legacyBackend
       .from('games')
       .insert({
         quiz_set_id: quizSetId,

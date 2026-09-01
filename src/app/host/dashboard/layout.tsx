@@ -7,7 +7,7 @@ const inter = Inter({ subsets: ['latin'] })
 
 export const metadata: Metadata = {
   title: 'SupaQuiz',
-  description: 'Fun quiz game powered by Supabase',
+  description: 'Thai camp quiz host dashboard',
 }
 
 const menuItems: {

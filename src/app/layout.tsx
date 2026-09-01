@@ -6,7 +6,7 @@ const inter = Inter({ subsets: ['latin'] })
 
 export const metadata: Metadata = {
   title: 'SupaQuiz',
-  description: 'OSS Kahoot Alternative powered by Supabase',
+  description: 'Thai camp quiz game',
 }
 
 export default function RootLayout({
