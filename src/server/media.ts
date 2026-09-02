@@ -12,6 +12,13 @@ const extensions: Record<string, string> = {
 
 export const MAX_MEDIA_BYTES = 8 * 1024 * 1024
 
+export function resolvePublicMediaPath(mediaRoot: string, segments: string[]): string | null {
+  if (segments.length === 0 || segments.some((segment) => !segment || segment === '.' || segment === '..' || segment.includes(path.sep))) return null
+  const root = path.resolve(mediaRoot)
+  const target = path.resolve(root, ...segments)
+  return target.startsWith(`${root}${path.sep}`) ? target : null
+}
+
 export function isSupportedImageType(type: string): type is keyof typeof extensions {
   return type in extensions
 }
