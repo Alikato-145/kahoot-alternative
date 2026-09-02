@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import React from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { HostReveal } from '@/components/game/HostReveal'
+import { applyHostQuestionEvent } from '@/components/game/HostGame'
 
 const longThaiExplanation = 'เพราะโลกโคจรรอบดวงอาทิตย์และหมุนรอบตัวเองอย่างต่อเนื่อง จึงเกิดกลางวันและกลางคืน'
 
@@ -25,5 +26,20 @@ describe('HostReveal', () => {
 
     expect(markup).toContain('alt="ภาพเฉลย"')
     expect(markup).toContain(longThaiExplanation)
+  })
+})
+
+describe('live Host question state', () => {
+  it('retains the server answer deadline received after the lobby snapshot', () => {
+    const view = applyHostQuestionEvent({ questionId: 'question-1', deadlineAt: null, answerCount: 0 }, { type: 'question:open', questionId: 'question-1', deadlineAt: 1_725_000_000_000 })
+
+    expect(view).toEqual({ questionId: 'question-1', deadlineAt: 1_725_000_000_000, answerCount: 0 })
+  })
+
+  it('updates only the aggregate answer count for the active question', () => {
+    const view = applyHostQuestionEvent({ questionId: 'question-1', deadlineAt: 1_725_000_000_000, answerCount: 0 }, { type: 'question:answer-progress', questionId: 'question-1', answerCount: 3 })
+
+    expect(view.answerCount).toBe(3)
+    expect(view).not.toHaveProperty('choiceId')
   })
 })

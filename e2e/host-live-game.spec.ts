@@ -23,6 +23,9 @@ test.beforeEach(async ({ page }) => {
       },
     }
     ;(window as any).__campQuizSocketFactory = () => socket
+    ;(window as any).__campQuizHostFixture = {
+      answerProgress: (answerCount: number) => listeners['question:answer-progress']?.({ questionId: 'question-1', answerCount }),
+    }
   }, lobby)
 })
 
@@ -31,6 +34,9 @@ test('Host screen renders question and reveal media through the live controls', 
   await expect(page.getByText('842193', { exact: true })).toBeVisible()
   await page.getByRole('button', { name: 'เริ่มเกม' }).click()
   await expect(page.getByRole('img', { name: 'รูปทรงใดมีสามด้าน?' })).toHaveAttribute('src', '/question.webp')
+  await expect(page.getByLabel(/เหลือเวลา/)).toBeVisible()
+  await page.evaluate(() => (window as any).__campQuizHostFixture.answerProgress(1))
+  await expect(page.getByText('ตอบแล้ว 1 คน')).toBeVisible()
   await page.getByRole('button', { name: /ปิดรับคำตอบ/ }).click()
   await expect(page.getByRole('img', { name: 'ภาพเฉลย' })).toHaveAttribute('src', '/answer.webp')
   await expect(page.getByText('สามเหลี่ยมมีสามด้านเสมอ')).toBeVisible()

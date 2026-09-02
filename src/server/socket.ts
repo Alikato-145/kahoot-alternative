@@ -38,7 +38,12 @@ export function registerGameSocketHandlers(io: Server, service = new GameService
         const playerId = socket.data.playerId as string | undefined
         if (!sessionId || !playerId) throw new Error('Join a game before answering')
         const result = await service.submitPlayerAnswer(sessionId, playerId, questionId, choiceId)
-        if (result.accepted) socket.emit('answer:accepted', result)
+        if (result.accepted) {
+          socket.emit('answer:accepted', result)
+          const snapshot = await service.getSnapshot(sessionId)
+          const answerCount = snapshot ? Object.keys(snapshot.answers[questionId]?.playerAnswers ?? {}).length : 0
+          io.to(roomFor(sessionId)).emit('question:answer-progress', { questionId, answerCount })
+        }
         else socket.emit('game:error', { message: 'Answer was not accepted' })
       } catch (error) { emitError(socket, error) }
     })

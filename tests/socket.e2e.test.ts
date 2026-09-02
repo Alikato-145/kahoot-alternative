@@ -59,9 +59,11 @@ describe('Socket.IO game protocol', () => {
     expect(await firstIntro).toMatchObject({ questionImageUrl: '/media/q.webp' })
     expect(await secondIntro).toMatchObject({ questionImageUrl: '/media/q.webp' })
     await open
+    const answerProgress = once(host, 'question:answer-progress')
     const firstAccepted = once(first, 'answer:accepted')
     first.emit('player:answer', { pin: session.pin, playerId: 'second', questionId: 'socket-q', choiceId: 'a' })
     await firstAccepted
+    expect(await answerProgress).toEqual({ questionId: 'socket-q', answerCount: 1 })
     const secondAccepted = once(second, 'answer:accepted')
     second.emit('player:answer', { pin: session.pin, playerId: 'first', questionId: 'socket-q', choiceId: 'b' })
     await secondAccepted
