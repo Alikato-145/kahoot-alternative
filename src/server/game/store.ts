@@ -1,10 +1,56 @@
 import { randomUUID } from 'node:crypto'
 import type { Quiz } from '../repositories/quizzes'
 import { ACTIVE_SESSION_TTL_SECONDS, FINAL_SESSION_TTL_SECONDS, gameKeys, getRedis } from '../redis'
-import { scoreAnswer } from './scoring'
 import type { AnswerRecord, GamePhase, GameSnapshot, GameState, LivePlayer, QuestionAnswers, Session, SubmitAnswerInput, SubmitAnswerResult } from './types'
 
 type StoredPlayer = { id: string; nickname: string }
+
+const submitAnswerScript = `
+local stateValue = redis.call('GET', KEYS[1])
+local quizValue = redis.call('GET', KEYS[2])
+if not stateValue or not quizValue then return {0, 0} end
+local state = cjson.decode(stateValue)
+if state.phase ~= 'answering' or not state.deadlineAt then return {0, 0} end
+local now = tonumber(ARGV[4])
+if now > tonumber(state.deadlineAt) then return {0, 0} end
+if redis.call('HEXISTS', KEYS[3], ARGV[1]) == 0 then return {0, 0} end
+if redis.call('HEXISTS', KEYS[5], ARGV[1]) == 1 then return {0, 0} end
+local quiz = cjson.decode(quizValue)
+local index = tonumber(state.currentQuestionIndex)
+if not index or not quiz.questions[index + 1] then return {0, 0} end
+local question = quiz.questions[index + 1]
+if question.id ~= ARGV[2] then return {0, 0} end
+local selected
+for _, choice in ipairs(question.choices) do
+  if choice.id == ARGV[3] then selected = choice break end
+end
+if not selected then return {0, 0} end
+local openedAt = tonumber(state.openedAt) or now
+local deadlineMs = math.max(1, tonumber(state.deadlineAt) - openedAt)
+local elapsedMs = math.max(0, now - openedAt)
+local earnedScore = 0
+if selected.isCorrect then
+  earnedScore = math.max(0, 1000 - math.floor(1000 * math.min(elapsedMs / deadlineMs, 1) + 0.5))
+end
+local answer = cjson.encode({choiceId = ARGV[3], earnedScore = earnedScore, elapsedMs = elapsedMs, answeredAt = now})
+redis.call('HSET', KEYS[5], ARGV[1], answer)
+redis.call('HINCRBY', KEYS[5], 'count:' .. ARGV[3], 1)
+redis.call('ZINCRBY', KEYS[4], earnedScore, ARGV[1])
+if earnedScore > 0 then redis.call('ZADD', KEYS[6], now, ARGV[1]) end
+redis.call('EXPIRE', KEYS[5], tonumber(ARGV[5]))
+return {1, earnedScore}
+`
+
+const closeQuestionScript = `
+local stateValue = redis.call('GET', KEYS[1])
+if not stateValue then return 0 end
+local state = cjson.decode(stateValue)
+if state.phase ~= 'answering' then return 0 end
+state.phase = 'reveal'
+state.deadlineAt = cjson.null
+redis.call('SET', KEYS[1], cjson.encode(state))
+return 1
+`
 
 function parseJson<T>(value: string | null): T | null {
   return value ? JSON.parse(value) as T : null
@@ -34,18 +80,23 @@ async function touchSession(sessionId: string, ttlSeconds = ACTIVE_SESSION_TTL_S
 }
 
 export async function createSession(quiz: Quiz, pin = String(Math.floor(Math.random() * 1_000_000)).padStart(6, '0')): Promise<Session> {
-  const id = randomUUID()
-  const state: GameState = { sessionId: id, quizId: quiz.id, pin, phase: 'lobby', currentQuestionIndex: null, openedAt: null, deadlineAt: null }
   const redis = getRedis()
-  await redis.multi()
-    .set(gameKeys.pin(pin), id, 'EX', ACTIVE_SESSION_TTL_SECONDS)
-    .set(gameKeys.state(id), JSON.stringify(state), 'EX', ACTIVE_SESSION_TTL_SECONDS)
-    .set(gameKeys.quiz(id), JSON.stringify(quiz), 'EX', ACTIVE_SESSION_TTL_SECONDS)
-    .exec()
-  return { id, pin }
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    const candidatePin = attempt === 0 ? pin : String(Math.floor(Math.random() * 1_000_000)).padStart(6, '0')
+    const id = randomUUID()
+    const reserved = await redis.set(gameKeys.pin(candidatePin), id, 'EX', ACTIVE_SESSION_TTL_SECONDS, 'NX')
+    if (!reserved) continue
+    const state: GameState = { sessionId: id, quizId: quiz.id, pin: candidatePin, phase: 'lobby', currentQuestionIndex: null, openedAt: null, deadlineAt: null }
+    await redis.multi()
+      .set(gameKeys.state(id), JSON.stringify(state), 'EX', ACTIVE_SESSION_TTL_SECONDS)
+      .set(gameKeys.quiz(id), JSON.stringify(quiz), 'EX', ACTIVE_SESSION_TTL_SECONDS)
+      .exec()
+    return { id, pin: candidatePin }
+  }
+  throw new Error('Unable to reserve a unique game PIN')
 }
 
-export async function joinSession(pin: string, nickname: string, playerId = randomUUID()): Promise<LivePlayer> {
+export async function joinSession(pin: string, nickname: string, playerId: string = randomUUID()): Promise<LivePlayer> {
   const redis = getRedis()
   const sessionId = await redis.get(gameKeys.pin(pin))
   if (!sessionId) throw new Error('Game PIN is invalid or expired')
@@ -55,6 +106,7 @@ export async function joinSession(pin: string, nickname: string, playerId = rand
   await redis.multi()
     .hset(gameKeys.players(sessionId), playerId, JSON.stringify(player))
     .zadd(gameKeys.leaderboard(sessionId), 0, playerId)
+    .zadd(gameKeys.scoreTimes(sessionId), Date.now(), playerId)
     .exec()
   await touchSession(sessionId)
   return { ...player, score: 0 }
@@ -74,47 +126,20 @@ export async function submitAnswer(input: SubmitAnswerInput): Promise<SubmitAnsw
   const redis = getRedis()
   const sessionId = await redis.get(gameKeys.pin(input.pin))
   if (!sessionId) throw new Error('Game PIN is invalid or expired')
-  const [stateValue, quizValue, playerValue] = await Promise.all([
-    redis.get(gameKeys.state(sessionId)),
-    redis.get(gameKeys.quiz(sessionId)),
-    redis.hget(gameKeys.players(sessionId), input.playerId),
-  ])
-  const state = parseJson<GameState>(stateValue)
-  const quiz = parseJson<Quiz>(quizValue)
-  const player = playerValue ? parseJson<StoredPlayer>(playerValue) : null
-  if (!state || !quiz || !player || state.phase !== 'answering') return { accepted: false }
-  const question = quiz.questions[state.currentQuestionIndex ?? -1]
-  const choice = question?.choices.find((item) => item.id === input.choiceId)
-  if (!question || question.id !== input.questionId || !choice || !state.deadlineAt || Date.now() > state.deadlineAt) return { accepted: false }
-
-  const now = Date.now()
-  const openedAt = state.openedAt ?? now
-  const deadlineMs = Math.max(1, state.deadlineAt - openedAt)
-  const elapsedMs = Math.max(0, now - openedAt)
-  const earnedScore = scoreAnswer(choice.isCorrect, elapsedMs, deadlineMs)
   const answerKey = gameKeys.answers(sessionId, input.questionId)
-  const answer: AnswerRecord = { choiceId: input.choiceId, earnedScore, elapsedMs, answeredAt: now }
-
-  for (;;) {
-    await redis.watch(answerKey)
-    if (await redis.hexists(answerKey, input.playerId)) {
-      await redis.unwatch()
-      return { accepted: false }
-    }
-    const result = await redis.multi()
-      .hset(answerKey, input.playerId, JSON.stringify(answer))
-      .hincrby(answerKey, `count:${input.choiceId}`, 1)
-      .zincrby(gameKeys.leaderboard(sessionId), earnedScore, input.playerId)
-      .expire(answerKey, ACTIVE_SESSION_TTL_SECONDS)
-      .exec()
-    if (result) break
-  }
+  const result = await redis.eval(submitAnswerScript, 6,
+    gameKeys.state(sessionId), gameKeys.quiz(sessionId), gameKeys.players(sessionId), gameKeys.leaderboard(sessionId), answerKey, gameKeys.scoreTimes(sessionId),
+    input.playerId, input.questionId, input.choiceId, String(Date.now()), String(ACTIVE_SESSION_TTL_SECONDS),
+  ) as [number, number]
+  if (Number(result[0]) !== 1) return { accepted: false }
   await touchSession(sessionId)
-  return { accepted: true, earnedScore }
+  return { accepted: true, earnedScore: Number(result[1]) }
 }
 
 export async function closeQuestion(sessionId: string): Promise<GameSnapshot | null> {
-  await setGameState(sessionId, { phase: 'reveal', deadlineAt: null })
+  const redis = getRedis()
+  await redis.eval(closeQuestionScript, 1, gameKeys.state(sessionId))
+  await touchSession(sessionId)
   return getSnapshot(sessionId)
 }
 
@@ -126,11 +151,14 @@ export async function getSnapshot(sessionId: string): Promise<GameSnapshot | nul
   const state = parseJson<GameState>(stateValue)
   const quiz = parseJson<Quiz>(quizValue)
   if (!state || !quiz) return null
-  const players: LivePlayer[] = await Promise.all(Object.values(playerHash).map(async (value) => {
+  const players = await Promise.all(Object.values(playerHash).map(async (value) => {
     const player = parseJson<StoredPlayer>(value)!
-    return { ...player, score: Number(await redis.zscore(gameKeys.leaderboard(sessionId), player.id) ?? 0) }
+    const [score, scoreReachedAt] = await Promise.all([
+      redis.zscore(gameKeys.leaderboard(sessionId), player.id), redis.zscore(gameKeys.scoreTimes(sessionId), player.id),
+    ])
+    return { ...player, score: Number(score ?? 0), scoreReachedAt: Number(scoreReachedAt ?? Number.MAX_SAFE_INTEGER) }
   }))
-  players.sort((left, right) => right.score - left.score || left.id.localeCompare(right.id))
+  players.sort((left, right) => right.score - left.score || left.scoreReachedAt - right.scoreReachedAt || left.id.localeCompare(right.id))
   const answers: Record<string, QuestionAnswers> = {}
   for (const question of quiz.questions) {
     const values = await redis.hgetall(gameKeys.answers(sessionId, question.id))
@@ -139,7 +167,7 @@ export async function getSnapshot(sessionId: string): Promise<GameSnapshot | nul
     for (const [field, value] of Object.entries(values)) if (!field.startsWith('count:')) playerAnswers[field] = JSON.parse(value) as AnswerRecord
     answers[question.id] = { playerAnswers, choiceCounts }
   }
-  return { state, quiz, players, answers }
+  return { state, quiz, players: players.map(({ scoreReachedAt: _, ...player }) => player), answers }
 }
 
 export async function expireSession(sessionId: string): Promise<void> {

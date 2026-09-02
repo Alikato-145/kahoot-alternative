@@ -10,6 +10,7 @@ export const gameKeys = {
   quiz: (sessionId: string) => `game:${sessionId}:quiz`,
   players: (sessionId: string) => `game:${sessionId}:players`,
   leaderboard: (sessionId: string) => `game:${sessionId}:leaderboard`,
+  scoreTimes: (sessionId: string) => `game:${sessionId}:score-times`,
   answers: (sessionId: string, questionId: string) => `game:${sessionId}:answers:${questionId}`,
   sessionPattern: (sessionId: string) => `game:${sessionId}:*`,
 }
