@@ -27,6 +27,7 @@ export function applyHostRankUpdate(players: LivePlayer[], update: { playerId: s
   return players.map((player) => player.id === update.playerId ? { ...player, score: update.totalScore, rank: update.rank } : player)
     .sort((left, right) => left.rank - right.rank || right.score - left.score || left.id.localeCompare(right.id))
 }
+export function leaderboardPlayers(payload: { players: LivePlayer[] }): LivePlayer[] { return payload.players }
 export function HostScoreboard({ players, final }: { players: LivePlayer[]; final: boolean }) {
   if (final) return <FinalLeaderboard players={players} />
   return <section aria-label="คะแนนรอบนี้" className="mx-auto flex w-full max-w-3xl flex-col gap-5 py-8 text-center text-white"><h2 className="text-4xl font-black">ตารางคะแนนรอบนี้</h2><RankMotion players={players} /></section>
@@ -53,7 +54,7 @@ export function HostGame({ sessionId, hostToken }: { sessionId: string; hostToke
     const onAnswerProgress = (event: Extract<HostQuestionEvent, { type: 'question:answer-progress' }>) => setQuestionState((current) => applyHostQuestionEvent(current, event))
     const onReveal = (next: RevealEvent) => { setQuestionId(next.questionId); setReveal(next); setPhase('reveal') }
     const onRank = (next: { playerId: string; totalScore: number; rank: number }) => { setPlayers((current) => applyHostRankUpdate(current, next)); setPhase('score-rank') }
-    const onRanks = (next: LivePlayer[]) => { setPlayers(next); setPhase('score-rank'); setRankBroadcast(true) }
+    const onRanks = (next: { players: LivePlayer[] }) => { setPlayers(leaderboardPlayers(next)); setPhase('score-rank'); setRankBroadcast(true) }
     const onFinal = ({ players: next }: { players: LivePlayer[] }) => { setPlayers(next); setPhase('final-results'); setRankBroadcast(false) }
     const onError = ({ message }: { message: string }) => setError(message)
     socket.on('connect', join).on('game:state', onState).on('lobby:players', onLobby).on('question:intro', onIntro).on('question:open', onOpen).on('question:answer-progress', onAnswerProgress).on('question:reveal', onReveal).on('score:rank-update', onRank).on('leaderboard:update', onRanks).on('game:final-results', onFinal).on('game:error', onError)

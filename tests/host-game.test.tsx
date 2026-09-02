@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import React from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { HostReveal } from '@/components/game/HostReveal'
-import { applyHostQuestionEvent, applyHostRankUpdate, HostScoreboard } from '@/components/game/HostGame'
+import { applyHostQuestionEvent, applyHostRankUpdate, leaderboardPlayers, HostScoreboard } from '@/components/game/HostGame'
 
 const longThaiExplanation = 'เพราะโลกโคจรรอบดวงอาทิตย์และหมุนรอบตัวเองอย่างต่อเนื่อง จึงเกิดกลางวันและกลางคืน'
 
@@ -45,6 +45,12 @@ describe('live Host question state', () => {
 })
 
 describe('projected Host rankings', () => {
+  it('extracts players from the leaderboard socket payload before rendering', () => {
+    const players = leaderboardPlayers({ players: [{ id: 'one', nickname: 'หนึ่ง', score: 300, rank: 1 }] })
+    expect(players).toHaveLength(1)
+    expect(players[0].nickname).toBe('หนึ่ง')
+  })
+
   it('updates the projected ordering from a score:rank-update and renders the animated leaderboard', () => {
     const players = applyHostRankUpdate([
       { id: 'one', nickname: 'หนึ่ง', score: 300, rank: 1 },
