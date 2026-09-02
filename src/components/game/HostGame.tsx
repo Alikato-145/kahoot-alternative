@@ -13,15 +13,15 @@ import { FinalLeaderboard } from './FinalLeaderboard'
 import { QuestionIntro } from './QuestionIntro'
 
 type RevealEvent = HostRevealPayload & { questionId: string }
-export type HostQuestionState = { questionId: string | null; deadlineAt: number | null; answerCount: number }
+export type HostQuestionState = { questionId: string | null; openedAt: number | null; deadlineAt: number | null; answerCount: number }
 export type HostQuestionEvent =
-  | { type: 'question:open'; questionId: string; deadlineAt: number }
+  | { type: 'question:open'; questionId: string; openedAt: number; deadlineAt: number }
   | { type: 'question:answer-progress'; questionId: string; answerCount: number }
 
 /** Applies the only two safe live question updates received by the projected Host. */
 export function applyHostQuestionEvent(current: HostQuestionState, event: HostQuestionEvent): HostQuestionState {
   if (event.questionId !== current.questionId) return current
-  if (event.type === 'question:open') return { ...current, deadlineAt: event.deadlineAt }
+  if (event.type === 'question:open') return { ...current, openedAt: event.openedAt, deadlineAt: event.deadlineAt }
   return { ...current, answerCount: event.answerCount }
 }
 export function applyHostRankUpdate(players: LivePlayer[], update: { playerId: string; totalScore: number; rank: number }): LivePlayer[] {
@@ -39,7 +39,7 @@ export function HostGame({ sessionId, hostToken }: { sessionId: string; hostToke
   const [snapshot, setSnapshot] = useState<GameSnapshot | null>(null)
   const [phase, setPhase] = useState<GameSnapshot['state']['phase']>('lobby')
   const [questionId, setQuestionId] = useState<string | null>(null)
-  const [questionState, setQuestionState] = useState<HostQuestionState>({ questionId: null, deadlineAt: null, answerCount: 0 })
+  const [questionState, setQuestionState] = useState<HostQuestionState>({ questionId: null, openedAt: null, deadlineAt: null, answerCount: 0 })
   const [reveal, setReveal] = useState<RevealEvent | null>(null)
   const [players, setPlayers] = useState<LivePlayer[]>([])
   const [rankBroadcast, setRankBroadcast] = useState(false)
@@ -48,10 +48,10 @@ export function HostGame({ sessionId, hostToken }: { sessionId: string; hostToke
   useEffect(() => {
     const socket = getGameSocket()
     const join = () => socket.emit('host:join', { sessionId, hostToken })
-    const onState = (next: GameSnapshot) => { setSnapshot(next); setPlayers(next.players); setPhase(next.state.phase); const index = next.state.currentQuestionIndex; const id = index === null ? null : next.quiz.questions[index]?.id ?? null; setQuestionId(id); setQuestionState({ questionId: id, deadlineAt: next.state.deadlineAt, answerCount: id ? Object.keys(next.answers[id]?.playerAnswers ?? {}).length : 0 }); setRankBroadcast(next.state.phase === 'score-rank') }
+    const onState = (next: GameSnapshot) => { setSnapshot(next); setPlayers(next.players); setPhase(next.state.phase); const index = next.state.currentQuestionIndex; const id = index === null ? null : next.quiz.questions[index]?.id ?? null; setQuestionId(id); setQuestionState({ questionId: id, openedAt: next.state.openedAt, deadlineAt: next.state.deadlineAt, answerCount: id ? Object.keys(next.answers[id]?.playerAnswers ?? {}).length : 0 }); setRankBroadcast(next.state.phase === 'score-rank') }
     const onLobby = (next: LivePlayer[]) => setPlayers(next)
-    const onIntro = ({ questionId: id }: { questionId: string }) => { setQuestionId(id); setQuestionState({ questionId: id, deadlineAt: null, answerCount: 0 }); setPhase('question-intro'); setReveal(null); setRankBroadcast(false) }
-    const onOpen = (event: Extract<HostQuestionEvent, { type: 'question:open' }>) => { setQuestionId(event.questionId); setQuestionState((current) => applyHostQuestionEvent(current.questionId === event.questionId ? current : { questionId: event.questionId, deadlineAt: null, answerCount: 0 }, event)); setPhase('answering') }
+    const onIntro = ({ questionId: id, openedAt, deadlineAt }: { questionId: string; openedAt: number; deadlineAt: number }) => { setQuestionId(id); setQuestionState({ questionId: id, openedAt, deadlineAt, answerCount: 0 }); setPhase('question-intro'); setReveal(null); setRankBroadcast(false) }
+    const onOpen = (event: Extract<HostQuestionEvent, { type: 'question:open' }>) => { setQuestionId(event.questionId); setQuestionState((current) => applyHostQuestionEvent(current.questionId === event.questionId ? current : { questionId: event.questionId, openedAt: null, deadlineAt: null, answerCount: 0 }, event)); setPhase('answering') }
     const onAnswerProgress = (event: Extract<HostQuestionEvent, { type: 'question:answer-progress' }>) => setQuestionState((current) => applyHostQuestionEvent(current, event))
     const onReveal = (next: RevealEvent) => { setQuestionId(next.questionId); setReveal(next); setPhase('reveal') }
     const onRank = (next: { playerId: string; totalScore: number; rank: number }) => { setPlayers((current) => applyHostRankUpdate(current, next)); setPhase('score-rank') }
@@ -69,6 +69,6 @@ export function HostGame({ sessionId, hostToken }: { sessionId: string; hostToke
   const playerUrl = playerJoinUrl(snapshot.state.pin, typeof window === 'undefined' ? '' : window.location.origin)
   const controls = phase === 'lobby' ? undefined : phase === 'answering' ? <button className="rounded-xl bg-white px-6 py-3 text-xl font-black text-purple-950" type="button" onClick={() => getGameSocket().emit('host:reveal')}>ปิดรับคำตอบ / ดูเฉลย</button> : rankBroadcast ? <button className="rounded-xl bg-white px-6 py-3 text-xl font-black text-purple-950" type="button" onClick={() => getGameSocket().emit('host:next')}>ข้อต่อไป</button> : undefined
   return <GameShell header={<div className="flex items-center justify-between gap-4"><span className="font-black">{snapshot.quiz.title}</span>{controls}</div>}>
-    {phase === 'lobby' ? <HostLobby pin={snapshot.state.pin} playerUrl={playerUrl} players={players} onStart={() => getGameSocket().emit('host:start')} /> : phase === 'question-intro' ? <QuestionIntro /> : phase === 'final-results' ? <HostScoreboard players={players} final /> : phase === 'score-rank' ? <HostScoreboard players={players} final={false} /> : question && phase === 'reveal' && reveal ? <HostReveal question={question} reveal={reveal} /> : question ? <HostQuestion question={question} deadlineAt={questionState.deadlineAt} answerCount={questionState.answerCount} /> : <p role="status">กำลังรอคำถาม…</p>}
+    {phase === 'lobby' ? <HostLobby pin={snapshot.state.pin} playerUrl={playerUrl} players={players} onStart={() => getGameSocket().emit('host:start')} /> : phase === 'question-intro' ? <QuestionIntro openedAt={questionState.openedAt} deadlineAt={questionState.deadlineAt} /> : phase === 'final-results' ? <HostScoreboard players={players} final /> : phase === 'score-rank' ? <HostScoreboard players={players} final={false} /> : question && phase === 'reveal' && reveal ? <HostReveal question={question} reveal={reveal} /> : question ? <HostQuestion question={question} openedAt={questionState.openedAt} deadlineAt={questionState.deadlineAt} answerCount={questionState.answerCount} /> : <p role="status">กำลังรอคำถาม…</p>}
   </GameShell>
 }

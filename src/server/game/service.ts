@@ -5,8 +5,8 @@ import type { GameSnapshot, LivePlayer, SubmitAnswerResult } from './types'
 import { persistFinalResults, type FinalResultsInput } from '../repositories/game-results'
 
 export type GameServiceEvent =
-  | { type: 'question:intro'; sessionId: string; questionId: string; questionIndex: number; body: string; questionImageUrl: string | null }
-  | { type: 'question:open'; sessionId: string; questionId: string; deadlineAt: number }
+  | { type: 'question:intro'; sessionId: string; questionId: string; questionIndex: number; body: string; questionImageUrl: string | null; openedAt: number; deadlineAt: number }
+  | { type: 'question:open'; sessionId: string; questionId: string; openedAt: number; deadlineAt: number }
   | { type: 'question:reveal'; sessionId: string; questionId: string; correctChoiceId: string; choiceCounts: Record<string, number>; revealImageUrl: string | null; explanation: string | null }
   | { type: 'score:rank-update'; sessionId: string; playerId: string; correct: boolean; earnedScore: number; totalScore: number; previousRank: number; rank: number }
   | { type: 'leaderboard:update'; sessionId: string; players: LivePlayer[] }
@@ -83,8 +83,9 @@ export class GameService {
   async startGame(sessionId: string): Promise<GameServiceEvent> {
     const snapshot = requireSnapshot(await getSnapshot(sessionId), sessionId)
     if (!snapshot.quiz.questions.length) throw new Error('Game needs at least one question')
-    const deadlineAt = Date.now() + this.introDurationMs
-    const state = await transitionGameState(sessionId, 'lobby', { phase: 'question-intro', currentQuestionIndex: 0, openedAt: null, deadlineAt })
+    const openedAt = Date.now()
+    const deadlineAt = openedAt + this.introDurationMs
+    const state = await transitionGameState(sessionId, 'lobby', { phase: 'question-intro', currentQuestionIndex: 0, openedAt, deadlineAt })
     if (!state) throw new Error('Game can only start from the lobby')
     return this.publishIntro(sessionId)
   }
@@ -97,7 +98,7 @@ export class GameService {
     const state = await transitionGameState(sessionId, 'question-intro', { phase: 'answering', openedAt, deadlineAt })
     if (!state) throw new Error('Question can only open after its introduction')
     this.previousRanks.set(sessionId, new Map(snapshot.players.map((player) => [player.id, player.rank])))
-    const event: GameServiceEvent = { type: 'question:open', sessionId, questionId: question.id, deadlineAt }
+    const event: GameServiceEvent = { type: 'question:open', sessionId, questionId: question.id, openedAt, deadlineAt }
     this.publish(event)
     this.schedule(sessionId, this.answerDurationMs, () => this.revealQuestion(sessionId))
     return event
@@ -137,8 +138,9 @@ export class GameService {
     if (nextIndex >= snapshot.quiz.questions.length) {
       return this.finishGame(sessionId)
     }
-    const deadlineAt = Date.now() + this.introDurationMs
-    const state = await transitionGameState(sessionId, 'score-rank', { phase: 'question-intro', currentQuestionIndex: nextIndex, openedAt: null, deadlineAt })
+    const openedAt = Date.now()
+    const deadlineAt = openedAt + this.introDurationMs
+    const state = await transitionGameState(sessionId, 'score-rank', { phase: 'question-intro', currentQuestionIndex: nextIndex, openedAt, deadlineAt })
     if (!state) throw new Error('The host can only advance after rankings are shown')
     return this.publishIntro(sessionId)
   }
@@ -171,7 +173,7 @@ export class GameService {
   private async publishIntro(sessionId: string): Promise<GameServiceEvent> {
     const snapshot = requireSnapshot(await getSnapshot(sessionId), sessionId)
     const question = questionFrom(snapshot)
-    const event: GameServiceEvent = { type: 'question:intro', sessionId, questionId: question.id, questionIndex: question.position, body: question.body, questionImageUrl: question.questionImageUrl }
+    const event: GameServiceEvent = { type: 'question:intro', sessionId, questionId: question.id, questionIndex: question.position, body: question.body, questionImageUrl: question.questionImageUrl, openedAt: snapshot.state.openedAt ?? Date.now(), deadlineAt: snapshot.state.deadlineAt ?? Date.now() }
     this.publish(event)
     this.schedule(sessionId, Math.max(0, (snapshot.state.deadlineAt ?? Date.now()) - Date.now()), () => this.openQuestion(sessionId))
     return event

@@ -37,3 +37,7 @@ input::placeholder, textarea::placeholder {
 .answer-shape { display: inline-block; flex: 0 0 1.35rem; width: 1.35rem; height: 1.35rem; background: currentColor; }
 .answer-shape--triangle { clip-path: polygon(50% 0, 100% 100%, 0 100%); }.answer-shape--diamond { transform: rotate(45deg) scale(.72); }.answer-shape--circle { border-radius: 50%; }.answer-shape--square { border-radius: .15rem; }
 .game-timer { display: inline-flex; align-items: center; justify-content: center; min-width: 4.5rem; padding: .35rem .65rem; border-radius: 999px; background: #fff; color: #241044; font-variant-numeric: tabular-nums; font-weight: 800; }
+.time-bar { display: flex; width: min(100%, 42rem); align-items: center; gap: .75rem; margin: 0 auto; }
+.time-bar__track { height: 1rem; flex: 1; overflow: hidden; border: 3px solid rgba(255,255,255,.85); border-radius: 999px; background: rgba(0,0,0,.28); box-shadow: inset 0 1px 3px rgba(0,0,0,.3); }
+.time-bar__fill { height: 100%; border-radius: inherit; background: linear-gradient(90deg, #49d17d, #e9c73c 72%, #ef5350); transition: width .1s linear; }
+.time-bar__label { min-width: 3.75rem; color: #fff; font-size: 1.1rem; font-weight: 900; font-variant-numeric: tabular-nums; }

@@ -31,13 +31,13 @@ describe('HostReveal', () => {
 
 describe('live Host question state', () => {
   it('retains the server answer deadline received after the lobby snapshot', () => {
-    const view = applyHostQuestionEvent({ questionId: 'question-1', deadlineAt: null, answerCount: 0 }, { type: 'question:open', questionId: 'question-1', deadlineAt: 1_725_000_000_000 })
+    const view = applyHostQuestionEvent({ questionId: 'question-1', openedAt: null, deadlineAt: null, answerCount: 0 }, { type: 'question:open', questionId: 'question-1', openedAt: 1_724_999_980_000, deadlineAt: 1_725_000_000_000 })
 
-    expect(view).toEqual({ questionId: 'question-1', deadlineAt: 1_725_000_000_000, answerCount: 0 })
+    expect(view).toEqual({ questionId: 'question-1', openedAt: 1_724_999_980_000, deadlineAt: 1_725_000_000_000, answerCount: 0 })
   })
 
   it('updates only the aggregate answer count for the active question', () => {
-    const view = applyHostQuestionEvent({ questionId: 'question-1', deadlineAt: 1_725_000_000_000, answerCount: 0 }, { type: 'question:answer-progress', questionId: 'question-1', answerCount: 3 })
+    const view = applyHostQuestionEvent({ questionId: 'question-1', openedAt: 1_724_999_980_000, deadlineAt: 1_725_000_000_000, answerCount: 0 }, { type: 'question:answer-progress', questionId: 'question-1', answerCount: 3 })
 
     expect(view.answerCount).toBe(3)
     expect(view).not.toHaveProperty('choiceId')
