@@ -2,16 +2,18 @@ import { randomUUID } from 'node:crypto'
 import { ACTIVE_SESSION_TTL_SECONDS, gameKeys, getRedis } from '../redis'
 import { closeQuestion, expireSession, getSnapshot, joinSession, submitAnswer, transitionGameState, verifyHostCapability } from './store'
 import type { GameSnapshot, LivePlayer, SubmitAnswerResult } from './types'
+import { persistFinalResults, type FinalResultsInput } from '../repositories/game-results'
 
 export type GameServiceEvent =
   | { type: 'question:intro'; sessionId: string; questionId: string; questionIndex: number; body: string; questionImageUrl: string | null }
   | { type: 'question:open'; sessionId: string; questionId: string; deadlineAt: number }
   | { type: 'question:reveal'; sessionId: string; questionId: string; correctChoiceId: string; choiceCounts: Record<string, number>; revealImageUrl: string | null; explanation: string | null }
-  | { type: 'score:rank-update'; sessionId: string; playerId: string; earnedScore: number; totalScore: number; previousRank: number; rank: number }
+  | { type: 'score:rank-update'; sessionId: string; playerId: string; correct: boolean; earnedScore: number; totalScore: number; previousRank: number; rank: number }
   | { type: 'leaderboard:update'; sessionId: string; players: LivePlayer[] }
   | { type: 'game:final-results'; sessionId: string; players: LivePlayer[] }
 
-export type GameServiceOptions = { introDurationMs?: number; answerDurationMs?: number }
+export type FinalResultsRepository = { persistFinalResults(input: FinalResultsInput): Promise<void> }
+export type GameServiceOptions = { introDurationMs?: number; answerDurationMs?: number; resultRepository?: FinalResultsRepository }
 type Listener = (event: GameServiceEvent) => void
 
 const INTRO_DURATION_MS = 5_000
@@ -34,10 +36,13 @@ export class GameService {
   private readonly listeners = new Set<Listener>()
   private readonly timers = new Map<string, ReturnType<typeof setTimeout>>()
   private readonly previousRanks = new Map<string, Map<string, number>>()
+  private readonly completedSessions = new Set<string>()
+  private readonly resultRepository: FinalResultsRepository
 
   constructor(options: GameServiceOptions = {}) {
     this.introDurationMs = options.introDurationMs ?? INTRO_DURATION_MS
     this.answerDurationMs = options.answerDurationMs ?? ANSWER_DURATION_MS
+    this.resultRepository = options.resultRepository ?? { persistFinalResults }
   }
 
   subscribe(listener: Listener): () => void {
@@ -115,7 +120,7 @@ export class GameService {
     const previousRanks = this.previousRanks.get(sessionId) ?? new Map(snapshot.players.map((player, index) => [player.id, index + 1]))
     const rankEvents: GameServiceEvent[] = snapshot.players.map((player, index) => ({
       type: 'score:rank-update', sessionId, playerId: player.id,
-      earnedScore: answers?.playerAnswers[player.id]?.earnedScore ?? 0,
+      correct: (answers?.playerAnswers[player.id]?.earnedScore ?? 0) > 0, earnedScore: answers?.playerAnswers[player.id]?.earnedScore ?? 0,
       totalScore: player.score, previousRank: previousRanks.get(player.id) ?? index + 1, rank: index + 1,
     }))
     for (const event of rankEvents) this.publish(event)
@@ -130,17 +135,37 @@ export class GameService {
     const snapshot = requireSnapshot(await getSnapshot(sessionId), sessionId)
     const nextIndex = (snapshot.state.currentQuestionIndex ?? -1) + 1
     if (nextIndex >= snapshot.quiz.questions.length) {
-      const state = await transitionGameState(sessionId, 'score-rank', { phase: 'final-results', openedAt: null, deadlineAt: null })
-      if (!state) throw new Error('The host can only advance after rankings are shown')
-      await expireSession(sessionId)
-      const event: GameServiceEvent = { type: 'game:final-results', sessionId, players: snapshot.players }
-      this.publish(event)
-      return event
+      return this.finishGame(sessionId)
     }
     const deadlineAt = Date.now() + this.introDurationMs
     const state = await transitionGameState(sessionId, 'score-rank', { phase: 'question-intro', currentQuestionIndex: nextIndex, openedAt: null, deadlineAt })
     if (!state) throw new Error('The host can only advance after rankings are shown')
     return this.publishIntro(sessionId)
+  }
+
+  async finishGame(sessionId: string): Promise<GameServiceEvent> {
+    let snapshot = requireSnapshot(await getSnapshot(sessionId), sessionId)
+    if (snapshot.state.phase === 'score-rank') {
+      const state = await transitionGameState(sessionId, 'score-rank', { phase: 'final-results', openedAt: null, deadlineAt: null })
+      if (!state) throw new Error('The host can only advance after rankings are shown')
+      snapshot = requireSnapshot(await getSnapshot(sessionId), sessionId)
+    } else if (snapshot.state.phase !== 'final-results') {
+      throw new Error('The host can only finish after rankings are shown')
+    }
+    const answers = snapshot.quiz.questions.flatMap((question) => Object.entries(snapshot.answers[question.id]?.playerAnswers ?? {}).map(([playerId, answer]) => ({
+      playerId, questionId: question.id, choiceId: answer.choiceId, score: answer.earnedScore, answeredAt: answer.answeredAt,
+    })))
+    if (!this.completedSessions.has(sessionId)) {
+      await this.resultRepository.persistFinalResults({
+        sessionId, quizId: snapshot.state.quizId, pin: snapshot.state.pin,
+        players: snapshot.players.map((player) => ({ id: player.id, nickname: player.nickname, finalScore: player.score, finalRank: player.rank })), answers,
+      })
+      this.completedSessions.add(sessionId)
+    }
+    await expireSession(sessionId)
+    const event: GameServiceEvent = { type: 'game:final-results', sessionId, players: snapshot.players }
+    this.publish(event)
+    return event
   }
 
   private async publishIntro(sessionId: string): Promise<GameServiceEvent> {
