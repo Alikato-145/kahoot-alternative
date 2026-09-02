@@ -7,20 +7,22 @@ import { quizApi } from '@/lib/api'
 import { QuestionEditor } from './QuestionEditor'
 
 export type EditorQuestion = QuizInput['questions'][number]
-export type EditorQuiz = { id?: string; title: string; description: string; coverImageUrl?: string | null; questions: EditorQuestion[] }
+export type EditorQuiz = { id?: string; title: string; description: string; coverImageUrl?: string | null; timing?: NonNullable<QuizInput['timing']>; questions: EditorQuestion[] }
 export type PendingImage = { questionIndex: number; field: 'questionImageUrl' | 'revealImageUrl'; file: File }
 
 const blankQuestion = (): EditorQuestion => ({ body: '', questionImageUrl: null, revealImageUrl: null, explanation: '', choices: Array.from({ length: 4 }, () => ({ body: '', isCorrect: false })) })
-export const emptyQuiz: EditorQuiz = { title: '', description: '', coverImageUrl: null, questions: [blankQuestion()] }
+export const emptyQuiz: EditorQuiz = { title: '', description: '', coverImageUrl: null, timing: { introDurationSeconds: 5, answerDurationSeconds: 20, revealDurationSeconds: 4 }, questions: [blankQuestion()] }
 
 export function validateQuizForSubmission(quiz: EditorQuiz): string | null {
   if (!quiz.title.trim()) return 'กรุณากรอกชื่อ Quiz'
+  const timing = quiz.timing ?? emptyQuiz.timing!
+  if (timing.introDurationSeconds < 1 || timing.introDurationSeconds > 30 || timing.answerDurationSeconds < 5 || timing.answerDurationSeconds > 180 || timing.revealDurationSeconds < 1 || timing.revealDurationSeconds > 60) return 'เวลาเกมอยู่นอกช่วงที่กำหนด'
   if (quiz.questions.length === 0 || quiz.questions.some((question) => question.choices.length !== 4 || question.choices.filter((choice) => choice.isCorrect).length !== 1)) return 'แต่ละข้อมี 4 คำตอบ และต้องเลือกคำตอบที่ถูก 1 ข้อ'
   if (quiz.questions.some((question) => !question.body.trim() || question.choices.some((choice) => !choice.body.trim()))) return 'กรุณากรอกคำถามและคำตอบให้ครบ'
   return null
 }
 
-function toEditorQuiz(quiz: Quiz): EditorQuiz { return { id: quiz.id, title: quiz.title, description: quiz.description, coverImageUrl: quiz.coverImageUrl, questions: quiz.questions.map(({ body, questionImageUrl, revealImageUrl, explanation, choices }) => ({ body, questionImageUrl, revealImageUrl, explanation: explanation ?? '', choices: choices.map(({ body: choiceBody, isCorrect }) => ({ body: choiceBody, isCorrect })) })) } }
+function toEditorQuiz(quiz: Quiz): EditorQuiz { return { id: quiz.id, title: quiz.title, description: quiz.description, coverImageUrl: quiz.coverImageUrl, timing: quiz.timing ?? { introDurationSeconds: 5, answerDurationSeconds: 20, revealDurationSeconds: 4 }, questions: quiz.questions.map(({ body, questionImageUrl, revealImageUrl, explanation, choices }) => ({ body, questionImageUrl, revealImageUrl, explanation: explanation ?? '', choices: choices.map(({ body: choiceBody, isCorrect }) => ({ body: choiceBody, isCorrect })) })) } }
 
 export async function persistPendingImages(quizId: string, quiz: EditorQuiz, pendingImages: Map<string, PendingImage>, uploadImage: (quizId: string, file: File) => Promise<string>): Promise<EditorQuiz> {
   let updated = quiz
@@ -66,6 +68,11 @@ export function QuizEditor({ initialQuiz, quizId }: { initialQuiz?: Quiz; quizId
     {error && <p role="alert" className="rounded bg-red-100 p-3 text-red-800">{error}</p>}
     <label className="block font-medium">ชื่อ Quiz<input className="mt-1 block w-full rounded border p-2" value={quiz.title} onChange={(event) => setQuiz({ ...quiz, title: event.target.value })} required /></label>
     <label className="block font-medium">รายละเอียด<textarea className="mt-1 block w-full rounded border p-2" value={quiz.description} onChange={(event) => setQuiz({ ...quiz, description: event.target.value })} /></label>
+    <fieldset className="rounded-2xl border border-purple-100 bg-purple-50 p-4"><legend className="px-2 text-lg font-black text-purple-950">เวลาเกม</legend><div className="grid gap-4 sm:grid-cols-3">
+      <label className="block text-sm font-bold text-purple-950">เตรียมคำถาม (วินาที)<input type="number" min={1} max={30} className="mt-1 block w-full rounded border p-2 text-purple-950" value={(quiz.timing ?? emptyQuiz.timing!).introDurationSeconds} onChange={(event) => setQuiz({ ...quiz, timing: { ...(quiz.timing ?? emptyQuiz.timing!), introDurationSeconds: Number(event.target.value) } })} /></label>
+      <label className="block text-sm font-bold text-purple-950">เวลาตอบ (วินาที)<input type="number" min={5} max={180} className="mt-1 block w-full rounded border p-2 text-purple-950" value={(quiz.timing ?? emptyQuiz.timing!).answerDurationSeconds} onChange={(event) => setQuiz({ ...quiz, timing: { ...(quiz.timing ?? emptyQuiz.timing!), answerDurationSeconds: Number(event.target.value) } })} /></label>
+      <label className="block text-sm font-bold text-purple-950">เวลาเฉลย (วินาที)<input type="number" min={1} max={60} className="mt-1 block w-full rounded border p-2 text-purple-950" value={(quiz.timing ?? emptyQuiz.timing!).revealDurationSeconds} onChange={(event) => setQuiz({ ...quiz, timing: { ...(quiz.timing ?? emptyQuiz.timing!), revealDurationSeconds: Number(event.target.value) } })} /></label>
+    </div></fieldset>
     {!uploadQuizId && <p className="rounded bg-amber-50 p-3 text-amber-900">เลือกรูปได้เลย ระบบจะอัปโหลดให้หลังบันทึก Quiz ครั้งแรก</p>}
     {quiz.questions.map((question, index) => <QuestionEditor key={index} question={question} index={index} quizId={uploadQuizId} onPendingImage={(field, file) => setPendingImage(index, field, file)} onChange={(updated) => setQuiz({ ...quiz, questions: quiz.questions.map((item, current) => current === index ? updated : item) })} onRemove={() => setQuiz({ ...quiz, questions: quiz.questions.filter((_, current) => current !== index) })} />)}
     <button type="button" className="rounded bg-slate-200 px-4 py-2" onClick={() => setQuiz({ ...quiz, questions: [...quiz.questions, blankQuestion()] })}>เพิ่มคำถาม</button>

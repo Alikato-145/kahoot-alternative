@@ -13,5 +13,10 @@ const questionSchema = z.object({
 
 export const quizInputSchema = z.object({
   title: z.string().trim().min(1), description: z.string().default(''), coverImageUrl: z.string().startsWith('/media/').nullable().optional(),
+  timing: z.object({
+    introDurationSeconds: z.number().int().min(1).max(30),
+    answerDurationSeconds: z.number().int().min(5).max(180),
+    revealDurationSeconds: z.number().int().min(1).max(60),
+  }).default({ introDurationSeconds: 5, answerDurationSeconds: 20, revealDurationSeconds: 4 }),
   questions: z.array(questionSchema),
 })

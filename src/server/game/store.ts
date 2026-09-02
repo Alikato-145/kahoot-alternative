@@ -98,7 +98,8 @@ export async function createSession(quiz: Quiz, pin = String(Math.floor(Math.ran
     const reserved = await redis.set(gameKeys.pin(candidatePin), id, 'EX', ACTIVE_SESSION_TTL_SECONDS, 'NX')
     if (!reserved) continue
     const hostToken = randomUUID()
-    const state: GameState = { sessionId: id, quizId: quiz.id, pin: candidatePin, phase: 'lobby', currentQuestionIndex: null, openedAt: null, deadlineAt: null }
+    const timing = quiz.timing ?? { introDurationSeconds: 5, answerDurationSeconds: 20, revealDurationSeconds: 4 }
+    const state: GameState = { sessionId: id, quizId: quiz.id, pin: candidatePin, phase: 'lobby', currentQuestionIndex: null, openedAt: null, deadlineAt: null, timing }
     await redis.multi()
       .set(gameKeys.state(id), JSON.stringify(state), 'EX', ACTIVE_SESSION_TTL_SECONDS)
       .set(gameKeys.quiz(id), JSON.stringify(quiz), 'EX', ACTIVE_SESSION_TTL_SECONDS)
@@ -198,7 +199,7 @@ export async function getSnapshot(sessionId: string): Promise<GameSnapshot | nul
     for (const [field, value] of Object.entries(values)) if (!field.startsWith('count:')) playerAnswers[field] = JSON.parse(value) as AnswerRecord
     answers[question.id] = { playerAnswers, choiceCounts }
   }
-  return { state, quiz, players: players.map(({ scoreReachedAt: _, ...player }, index) => ({ ...player, rank: index + 1 })), answers }
+  return { state, quiz, timing: state.timing ?? quiz.timing ?? { introDurationSeconds: 5, answerDurationSeconds: 20, revealDurationSeconds: 4 }, players: players.map(({ scoreReachedAt: _, ...player }, index) => ({ ...player, rank: index + 1 })), answers }
 }
 
 export async function expireSession(sessionId: string): Promise<void> {

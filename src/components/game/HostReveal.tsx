@@ -3,17 +3,21 @@
 import React from 'react'
 import type { Question } from '@/server/repositories/quizzes'
 import { QuestionMedia } from '@/components/ui/QuestionMedia'
+import { TimeBar } from '@/components/ui/TimeBar'
 
 export type HostRevealPayload = {
   correctChoiceId: string
   choiceCounts: Record<string, number>
   revealImageUrl: string | null
   explanation: string | null
+  openedAt?: number
+  deadlineAt?: number
 }
 
 export function HostReveal({ question, reveal }: { question: Question; reveal: HostRevealPayload }) {
   const total = Object.values(reveal.choiceCounts).reduce((sum, count) => sum + count, 0)
   return <section aria-label="เฉลยคำถาม" className="space-y-6 text-center">
+    {typeof reveal.openedAt === 'number' && typeof reveal.deadlineAt === 'number' ? <TimeBar openedAt={reveal.openedAt} deadlineAt={reveal.deadlineAt} /> : null}
     <h1 className="text-3xl font-black sm:text-5xl">เฉลย: {question.body}</h1>
     <QuestionMedia src={reveal.revealImageUrl ?? question.revealImageUrl ?? undefined} alt="ภาพเฉลย" className="mx-auto" />
     <div className="grid gap-3 sm:grid-cols-2">

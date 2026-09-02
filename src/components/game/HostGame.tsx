@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useEffect, useMemo, useRef, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import type { GameSnapshot, LivePlayer } from '@/server/game/types'
 import type { Question } from '@/server/repositories/quizzes'
 import { getGameSocket } from '@/lib/socket'
@@ -50,7 +50,6 @@ export function HostGame({ sessionId, hostToken }: { sessionId: string; hostToke
   const [players, setPlayers] = useState<LivePlayer[]>([])
   const [rankBroadcast, setRankBroadcast] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const revealTransitionTimer = useRef<number | null>(null)
 
   useEffect(() => {
     const socket = getGameSocket()
@@ -62,12 +61,12 @@ export function HostGame({ sessionId, hostToken }: { sessionId: string; hostToke
     const onAnswerProgress = (event: Extract<HostQuestionEvent, { type: 'question:answer-progress' }>) => setQuestionState((current) => applyHostQuestionEvent(current, event))
     const onReveal = (next: RevealEvent) => { setQuestionId(next.questionId); setReveal(next); setPhase('reveal') }
     const onRank = (next: { playerId: string; totalScore: number; rank: number }) => setPlayers((current) => applyHostRankUpdate(current, next))
-    const onRanks = (next: { players: LivePlayer[] }) => { setPlayers(leaderboardPlayers(next)); if (revealTransitionTimer.current) window.clearTimeout(revealTransitionTimer.current); revealTransitionTimer.current = window.setTimeout(() => { setPhase('score-rank'); setRankBroadcast(true) }, 4_000) }
+    const onRanks = (next: { players: LivePlayer[] }) => { setPlayers(leaderboardPlayers(next)); setPhase('score-rank'); setRankBroadcast(true) }
     const onFinal = ({ players: next }: { players: LivePlayer[] }) => { setPlayers(next); setPhase('final-results'); setRankBroadcast(false) }
     const onError = ({ message }: { message: string }) => setError(message)
     socket.on('connect', join).on('game:state', onState).on('lobby:players', onLobby).on('question:intro', onIntro).on('question:open', onOpen).on('question:answer-progress', onAnswerProgress).on('question:reveal', onReveal).on('score:rank-update', onRank).on('leaderboard:update', onRanks).on('game:final-results', onFinal).on('game:error', onError)
     if (socket.connected) join()
-    return () => { if (revealTransitionTimer.current) window.clearTimeout(revealTransitionTimer.current); socket.off('connect', join).off('game:state', onState).off('lobby:players', onLobby).off('question:intro', onIntro).off('question:open', onOpen).off('question:answer-progress', onAnswerProgress).off('question:reveal', onReveal).off('score:rank-update', onRank).off('leaderboard:update', onRanks).off('game:final-results', onFinal).off('game:error', onError) }
+    return () => { socket.off('connect', join).off('game:state', onState).off('lobby:players', onLobby).off('question:intro', onIntro).off('question:open', onOpen).off('question:answer-progress', onAnswerProgress).off('question:reveal', onReveal).off('score:rank-update', onRank).off('leaderboard:update', onRanks).off('game:final-results', onFinal).off('game:error', onError) }
   }, [hostToken, sessionId])
 
   const question = useMemo<Question | undefined>(() => snapshot?.quiz.questions.find((candidate) => candidate.id === questionId), [snapshot, questionId])
