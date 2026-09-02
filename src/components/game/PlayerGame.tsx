@@ -1,0 +1,18 @@
+'use client'
+import React from 'react'
+import { useEffect, useState } from 'react'
+import type { GameSnapshot } from '@/server/game/types'
+import type { Question } from '@/server/repositories/quizzes'
+import { getGameSocket } from '@/lib/socket'
+import { PlayerLobby } from './PlayerLobby'
+import { PlayerQuestion } from './PlayerQuestion'
+export type PlayerConnection = { pin: string; playerId: string; nickname: string }
+const storageKey = 'camp-quiz-player'
+export function readPlayerConnection(): PlayerConnection | null { if (typeof window === 'undefined') return null; try { const raw = window.sessionStorage.getItem(storageKey); if (!raw) return null; const value = JSON.parse(raw) as Partial<PlayerConnection>; return /^\d{6}$/.test(value.pin ?? '') && typeof value.playerId === 'string' && typeof value.nickname === 'string' ? value as PlayerConnection : null } catch { return null } }
+export function PlayerGame({ pin }: { pin: string }) {
+  const [connection, setConnection] = useState<PlayerConnection | null>(null), [snapshot, setSnapshot] = useState<GameSnapshot | null>(null), [phase, setPhase] = useState<GameSnapshot['state']['phase']>('lobby'), [questionId, setQuestionId] = useState<string | null>(null), [submitted, setSubmitted] = useState(false), [error, setError] = useState<string | null>(null)
+  useEffect(() => { const identity = readPlayerConnection(); if (!identity || identity.pin !== pin) { setError('ไม่พบข้อมูลผู้เล่น กรุณาเข้าร่วมเกมอีกครั้ง'); return }; setConnection(identity); const socket = getGameSocket(); const join = () => socket.emit('player:join', { pin: identity.pin, nickname: identity.nickname, playerToken: identity.playerId || undefined }); const onJoined = ({ playerToken }: { playerToken: string }) => { const next = { ...identity, playerId: playerToken }; window.sessionStorage.setItem(storageKey, JSON.stringify(next)); setConnection(next) }; const onState = (next: GameSnapshot) => { setSnapshot(next); setPhase(next.state.phase); const current = next.state.currentQuestionIndex === null ? null : next.quiz.questions[next.state.currentQuestionIndex]; setQuestionId(current?.id ?? null); setSubmitted(false) }; const onIntro = ({ questionId: id }: { questionId: string }) => { setPhase('question-intro'); setQuestionId(id); setSubmitted(false) }; const onOpen = ({ questionId: id }: { questionId: string }) => { setPhase('answering'); setQuestionId(id); setSubmitted(false) }; const onError = ({ message }: { message: string }) => setError(message); socket.on('connect', join).on('room:joined', onJoined).on('game:state', onState).on('question:intro', onIntro).on('question:open', onOpen).on('game:error', onError); if (socket.connected) join(); return () => { socket.off('connect', join).off('room:joined', onJoined).off('game:state', onState).off('question:intro', onIntro).off('question:open', onOpen).off('game:error', onError) } }, [pin])
+  const question: Question | undefined = snapshot?.quiz.questions.find((candidate) => candidate.id === questionId)
+  const answer = (choiceId: string) => { if (!connection || !question || phase !== 'answering' || submitted) return; setSubmitted(true); getGameSocket().emit('player:answer', { pin: connection.pin, playerId: connection.playerId, questionId: question.id, choiceId }) }
+  if (error) return <main className="p-6"><p role="alert">{error}</p></main>; if (!connection || !snapshot) return <main className="p-6"><p role="status">กำลังเชื่อมต่อเกม…</p></main>; if (phase === 'lobby') return <PlayerLobby nickname={connection.nickname} players={snapshot.players} />; if (question) return <PlayerQuestion question={question} phase={phase} onAnswer={answer} submitted={submitted} />; return <main className="p-6"><p role="status">กำลังรอคำถาม…</p></main>
+}
