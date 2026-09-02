@@ -4,6 +4,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { PlayerQuestion } from '@/components/game/PlayerQuestion'
 import { QuestionIntro } from '@/components/game/QuestionIntro'
 import { createAnswerSubmission, joinPayloadFromStorage } from '@/components/game/PlayerGame'
+import { PlayerReveal } from '@/components/game/PlayerReveal'
 
 const question = {
   id: 'question-1',
@@ -21,6 +22,12 @@ const question = {
 }
 
 describe('PlayerQuestion', () => {
+  it('shows the configured reveal countdown and correct answer on player devices', () => {
+    const markup = renderToStaticMarkup(<PlayerReveal question={question} correctChoiceId="choice-1" revealImageUrl="/media/reveal.webp" explanation="สามด้าน" openedAt={1_000} deadlineAt={5_000} />)
+    expect(markup).toContain('เฉลยคำถาม')
+    expect(markup).toContain('สามเหลี่ยม')
+    expect(markup).toContain('role="timer"')
+  })
   it('hides question content and its image during the pre-question intro', () => {
     const markup = renderToStaticMarkup(<QuestionIntro />)
 
