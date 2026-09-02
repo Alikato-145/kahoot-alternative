@@ -25,7 +25,7 @@ sudo useradd --system --create-home --home-dir /srv/camp-quiz --shell /usr/sbin/
 sudo mkdir -p /srv/camp-quiz/media
 sudo chown -R campquiz:campquiz /srv/camp-quiz
 sudo -u campquiz git clone <YOUR_REPOSITORY_URL> /srv/camp-quiz
-sudo -u campquiz npm --prefix /srv/camp-quiz ci --omit=dev
+sudo -u campquiz npm --prefix /srv/camp-quiz ci
 ```
 
 Create the MySQL database and a local, least-privileged user. Choose a unique password and do not commit it.
@@ -66,17 +66,20 @@ sudo systemctl status camp-quiz --no-pager
 
 ## Nginx, HTTPS, and WebSocket
 
-Copy `deploy/nginx/camp-quiz.conf` to `/etc/nginx/sites-available/camp-quiz`, replace every `quiz.example.com`, enable the site, and remove the default site if it conflicts. Open firewall ports 80 and 443.
+Open firewall ports 80 and 443. A certificate does not exist yet, so the final HTTPS configuration cannot pass `nginx -t` at first. Start with the HTTP-only bootstrap configuration, replacing every `quiz.example.com` before copying it:
 
 ```sh
+sudo mkdir -p /var/www/certbot
+sudo cp /srv/camp-quiz/deploy/nginx/camp-quiz.bootstrap.conf /etc/nginx/sites-available/camp-quiz
 sudo ln -s /etc/nginx/sites-available/camp-quiz /etc/nginx/sites-enabled/camp-quiz
 sudo nginx -t
 sudo systemctl reload nginx
-sudo certbot --nginx -d quiz.example.com
+sudo certbot certonly --webroot -w /var/www/certbot -d quiz.example.com
+sudo cp /srv/camp-quiz/deploy/nginx/camp-quiz.conf /etc/nginx/sites-available/camp-quiz
 sudo nginx -t && sudo systemctl reload nginx
 ```
 
-Certbot renews automatically on normal installs; verify with `sudo certbot renew --dry-run`. The `/socket.io/` location upgrades connections, so browsers use `wss://quiz.example.com/socket.io/` when loaded over HTTPS. Do not expose Node port 3000, MySQL 3306, or Redis 6379 publicly.
+The bootstrap site is intentionally temporary and serves HTTP only while the certificate is issued. Certbot renews automatically on normal installs; verify with `sudo certbot renew --dry-run`. The final `/socket.io/` location upgrades connections, so browsers use `wss://quiz.example.com/socket.io/` when loaded over HTTPS. Do not expose Node port 3000, MySQL 3306, or Redis 6379 publicly.
 
 ## Updates, backup, and diagnostics
 
@@ -85,11 +88,13 @@ Before an update, back up MySQL. Redis is live/expiring state, not the durable q
 ```sh
 sudo mysqldump --single-transaction --routines --databases camp_quiz | gzip > /var/backups/camp-quiz-$(date +%F).sql.gz
 sudo -u campquiz git -C /srv/camp-quiz pull
-sudo -u campquiz npm --prefix /srv/camp-quiz ci --omit=dev
+sudo -u campquiz npm --prefix /srv/camp-quiz ci
 sudo -u campquiz npm --prefix /srv/camp-quiz run db:migrate
 sudo -u campquiz npm --prefix /srv/camp-quiz run build
 sudo systemctl restart camp-quiz
 ```
+
+Keep the installed development dependencies in this first release: `npm run start` executes the TypeScript server through `tsx`, and `npm run build` also needs TypeScript tooling. Do not run `npm prune --omit=dev` unless the server startup is first changed to a compiled production JavaScript entry point.
 
 Useful checks:
 
