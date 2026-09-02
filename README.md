@@ -24,6 +24,8 @@ npm run e2e
 
 For public HTTPS/WSS setup, database backups, and the five-phone rehearsal checklist, read [the operations guide](docs/operations.md).
 
+For step-by-step Host and player usage, quiz duplication, image uploads, and deployment overview, read [the user guide](docs/user-guide.md).
+
 ## Architecture
 
 - Next.js + Socket.IO: UI, REST routes, and real-time game protocol
