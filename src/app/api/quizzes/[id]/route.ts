@@ -18,6 +18,9 @@ export async function PUT(request: Request, { params }: Context): Promise<NextRe
   } catch (error) {
     if (error instanceof z.ZodError) return NextResponse.json({ error: 'Invalid quiz', details: error.flatten() }, { status: 422 })
     if (error instanceof Error && error.message.startsWith('Quiz not found:')) return NextResponse.json({ error: 'Quiz not found' }, { status: 404 })
+    if (error instanceof Error && error.message.startsWith('Quiz cannot be updated while a game session exists:')) {
+      return NextResponse.json({ error: 'Quiz has persisted game sessions and cannot be updated' }, { status: 409 })
+    }
     throw error
   }
 }

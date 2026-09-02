@@ -43,6 +43,16 @@ describe('quiz API routes', () => {
     expect((await GET(new Request('http://localhost/api/quizzes/missing'), { params: { id: 'missing' } })).status).toBe(404)
   })
 
+  it('returns 409 when updating a quiz that already has a game session', async () => {
+    repository.updateQuiz.mockRejectedValue(new Error('Quiz cannot be updated while a game session exists: quiz-1'))
+    const { PUT } = await import('@/app/api/quizzes/[id]/route')
+    const response = await PUT(new Request('http://localhost/api/quizzes/quiz-1', {
+      method: 'PUT', body: JSON.stringify(validQuiz), headers: { 'content-type': 'application/json' },
+    }), { params: { id: 'quiz-1' } })
+    expect(response.status).toBe(409)
+    expect(await response.json()).toEqual({ error: 'Quiz has persisted game sessions and cannot be updated' })
+  })
+
   it('refuses to delete a quiz with a persisted game session without removing its media', async () => {
     repository.deleteQuiz.mockRejectedValue(new Error('Quiz cannot be deleted while a game session exists: quiz-1'))
     const { DELETE } = await import('@/app/api/quizzes/[id]/route')
