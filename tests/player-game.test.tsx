@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import React from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { PlayerQuestion } from '@/components/game/PlayerQuestion'
+import { QuestionIntro } from '@/components/game/QuestionIntro'
 import { createAnswerSubmission, joinPayloadFromStorage } from '@/components/game/PlayerGame'
 
 const question = {
@@ -20,6 +21,13 @@ const question = {
 }
 
 describe('PlayerQuestion', () => {
+  it('hides question content and its image during the pre-question intro', () => {
+    const markup = renderToStaticMarkup(<QuestionIntro />)
+
+    expect(markup).toContain('เตรียมตัว')
+    expect(markup).not.toContain('<img')
+    expect(markup).not.toContain(question.body)
+  })
   it('renders the four enabled answer tiles while a question is accepting answers', () => {
     const markup = renderToStaticMarkup(<PlayerQuestion question={question} phase="answering" onAnswer={vi.fn()} />)
 

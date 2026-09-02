@@ -10,6 +10,7 @@ import { HostQuestion } from './HostQuestion'
 import { HostReveal, type HostRevealPayload } from './HostReveal'
 import { RankMotion } from './RankMotion'
 import { FinalLeaderboard } from './FinalLeaderboard'
+import { QuestionIntro } from './QuestionIntro'
 
 type RevealEvent = HostRevealPayload & { questionId: string }
 export type HostQuestionState = { questionId: string | null; deadlineAt: number | null; answerCount: number }
@@ -68,6 +69,6 @@ export function HostGame({ sessionId, hostToken }: { sessionId: string; hostToke
   const playerUrl = playerJoinUrl(snapshot.state.pin, typeof window === 'undefined' ? '' : window.location.origin)
   const controls = phase === 'lobby' ? undefined : phase === 'answering' ? <button className="rounded-xl bg-white px-6 py-3 text-xl font-black text-purple-950" type="button" onClick={() => getGameSocket().emit('host:reveal')}>ปิดรับคำตอบ / ดูเฉลย</button> : rankBroadcast ? <button className="rounded-xl bg-white px-6 py-3 text-xl font-black text-purple-950" type="button" onClick={() => getGameSocket().emit('host:next')}>ข้อต่อไป</button> : undefined
   return <GameShell header={<div className="flex items-center justify-between gap-4"><span className="font-black">{snapshot.quiz.title}</span>{controls}</div>}>
-    {phase === 'lobby' ? <HostLobby pin={snapshot.state.pin} playerUrl={playerUrl} players={players} onStart={() => getGameSocket().emit('host:start')} /> : phase === 'final-results' ? <HostScoreboard players={players} final /> : phase === 'score-rank' ? <HostScoreboard players={players} final={false} /> : question && phase === 'reveal' && reveal ? <HostReveal question={question} reveal={reveal} /> : question ? <HostQuestion question={question} deadlineAt={questionState.deadlineAt} answerCount={questionState.answerCount} /> : <p role="status">กำลังรอคำถาม…</p>}
+    {phase === 'lobby' ? <HostLobby pin={snapshot.state.pin} playerUrl={playerUrl} players={players} onStart={() => getGameSocket().emit('host:start')} /> : phase === 'question-intro' ? <QuestionIntro /> : phase === 'final-results' ? <HostScoreboard players={players} final /> : phase === 'score-rank' ? <HostScoreboard players={players} final={false} /> : question && phase === 'reveal' && reveal ? <HostReveal question={question} reveal={reveal} /> : question ? <HostQuestion question={question} deadlineAt={questionState.deadlineAt} answerCount={questionState.answerCount} /> : <p role="status">กำลังรอคำถาม…</p>}
   </GameShell>
 }

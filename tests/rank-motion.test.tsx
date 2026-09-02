@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import React from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { PlayerScoreRank } from '@/components/game/PlayerScoreRank'
-import { rankMotionTransform } from '@/components/game/RankMotion'
+import { RankMotion, rankMotionTransform } from '@/components/game/RankMotion'
 
 describe('PlayerScoreRank', () => {
   it('announces an upward move when rank changes from 5 to 2', () => {
@@ -22,5 +22,12 @@ describe('PlayerScoreRank', () => {
 describe('rankMotionTransform', () => {
   it('moves a newly rendered row from its previous vertical position', () => {
     expect(rankMotionTransform(520, 120)).toBe('translateY(400px)')
+  })
+})
+
+describe('RankMotion', () => {
+  it('keeps a long leaderboard vertically scrollable', () => {
+    const markup = renderToStaticMarkup(<RankMotion players={[{ id: 'one', nickname: 'หนึ่ง', score: 100, rank: 1 }]} />)
+    expect(markup).toContain('overflow-y-auto')
   })
 })
