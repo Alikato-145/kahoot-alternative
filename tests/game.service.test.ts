@@ -30,6 +30,15 @@ describe('GameService', () => {
     })
   })
 
+  it('allows only one concurrent lobby-to-intro transition and persists the intro deadline', async () => {
+    const session = await createSession(quiz, '121212')
+    const service = new GameService({ introDurationMs: 60_000 })
+    const results = await Promise.allSettled([service.startGame(session.id), service.startGame(session.id)])
+
+    expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1)
+    expect((await service.getSnapshot(session.id))?.state).toMatchObject({ phase: 'question-intro', deadlineAt: expect.any(Number) })
+  })
+
   it('moves through opening, reveal, ranking, and final results', async () => {
     const session = await createSession(quiz, '222222')
     const first = await joinSession(session.pin, 'หนึ่ง', 'first')
@@ -39,13 +48,18 @@ describe('GameService', () => {
     await service.startGame(session.id)
     const opened = await service.openQuestion(session.id)
     expect(opened).toMatchObject({ type: 'question:open', deadlineAt: expect.any(Number) })
-    await service.submitPlayerAnswer({ pin: session.pin, playerId: first.id, questionId: 'q1', choiceId: 'a' })
-    await service.submitPlayerAnswer({ pin: session.pin, playerId: second.id, questionId: 'q1', choiceId: 'b' })
+    await service.submitPlayerAnswer(session.id, first.id, 'q1', 'a')
+    await service.submitPlayerAnswer(session.id, second.id, 'q1', 'b')
 
     const closed = await service.revealQuestion(session.id)
     expect(closed.events.map((event) => event.type)).toEqual(['question:reveal', 'score:rank-update', 'score:rank-update', 'leaderboard:update'])
     expect(closed.events[1]).toMatchObject({ playerId: 'first', totalScore: expect.any(Number), previousRank: 1, rank: 1 })
     expect((await service.getSnapshot(session.id))?.state.phase).toBe('score-rank')
+    const reconnectedService = new GameService()
+    expect((await reconnectedService.getSnapshot(session.id))?.players).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: first.id, rank: 1 }),
+      expect.objectContaining({ id: second.id, rank: 2 }),
+    ]))
     await expect(service.nextQuestion(session.id)).resolves.toMatchObject({ type: 'game:final-results' })
   })
 })

@@ -11,6 +11,8 @@ export const gameKeys = {
   players: (sessionId: string) => `game:${sessionId}:players`,
   leaderboard: (sessionId: string) => `game:${sessionId}:leaderboard`,
   scoreTimes: (sessionId: string) => `game:${sessionId}:score-times`,
+  hostCapability: (sessionId: string) => `game:${sessionId}:host-capability`,
+  playerCapability: (sessionId: string, token: string) => `game:${sessionId}:player-capability:${token}`,
   answers: (sessionId: string, questionId: string) => `game:${sessionId}:answers:${questionId}`,
   sessionPattern: (sessionId: string) => `game:${sessionId}:*`,
 }

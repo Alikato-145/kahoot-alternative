@@ -52,6 +52,17 @@ redis.call('SET', KEYS[1], cjson.encode(state))
 return 1
 `
 
+const transitionStateScript = `
+local stateValue = redis.call('GET', KEYS[1])
+if not stateValue then return false end
+local state = cjson.decode(stateValue)
+if state.phase ~= ARGV[1] then return false end
+local patch = cjson.decode(ARGV[2])
+for key, value in pairs(patch) do state[key] = value end
+redis.call('SET', KEYS[1], cjson.encode(state))
+return cjson.encode(state)
+`
+
 function parseJson<T>(value: string | null): T | null {
   return value ? JSON.parse(value) as T : null
 }
@@ -86,12 +97,14 @@ export async function createSession(quiz: Quiz, pin = String(Math.floor(Math.ran
     const id = randomUUID()
     const reserved = await redis.set(gameKeys.pin(candidatePin), id, 'EX', ACTIVE_SESSION_TTL_SECONDS, 'NX')
     if (!reserved) continue
+    const hostToken = randomUUID()
     const state: GameState = { sessionId: id, quizId: quiz.id, pin: candidatePin, phase: 'lobby', currentQuestionIndex: null, openedAt: null, deadlineAt: null }
     await redis.multi()
       .set(gameKeys.state(id), JSON.stringify(state), 'EX', ACTIVE_SESSION_TTL_SECONDS)
       .set(gameKeys.quiz(id), JSON.stringify(quiz), 'EX', ACTIVE_SESSION_TTL_SECONDS)
+      .set(gameKeys.hostCapability(id), hostToken, 'EX', ACTIVE_SESSION_TTL_SECONDS)
       .exec()
-    return { id, pin: candidatePin }
+    return { id, pin: candidatePin, hostToken }
   }
   throw new Error('Unable to reserve a unique game PIN')
 }
@@ -109,7 +122,24 @@ export async function joinSession(pin: string, nickname: string, playerId: strin
     .zadd(gameKeys.scoreTimes(sessionId), Date.now(), playerId)
     .exec()
   await touchSession(sessionId)
-  return { ...player, score: 0 }
+  return { ...player, score: 0, rank: 0 }
+}
+
+export async function verifyHostCapability(sessionId: string, token: string): Promise<boolean> {
+  const capability = await getRedis().get(gameKeys.hostCapability(sessionId))
+  return capability !== null && capability === token
+}
+
+export async function transitionGameState(
+  sessionId: string,
+  expectedPhase: GamePhase,
+  patch: Partial<Pick<GameState, 'phase' | 'currentQuestionIndex' | 'openedAt' | 'deadlineAt'>>,
+): Promise<GameState | null> {
+  const redis = getRedis()
+  const value = await redis.eval(transitionStateScript, 1, gameKeys.state(sessionId), expectedPhase, JSON.stringify(patch)) as string | null
+  if (!value) return null
+  await touchSession(sessionId)
+  return JSON.parse(value) as GameState
 }
 
 export async function setGameState(sessionId: string, patch: Partial<Pick<GameState, 'phase' | 'currentQuestionIndex' | 'openedAt' | 'deadlineAt'>>): Promise<GameState> {
@@ -136,11 +166,12 @@ export async function submitAnswer(input: SubmitAnswerInput): Promise<SubmitAnsw
   return { accepted: true, earnedScore: Number(result[1]) }
 }
 
-export async function closeQuestion(sessionId: string): Promise<GameSnapshot | null> {
+export async function closeQuestion(sessionId: string): Promise<{ closed: boolean; snapshot: GameSnapshot | null }> {
   const redis = getRedis()
-  await redis.eval(closeQuestionScript, 1, gameKeys.state(sessionId))
+  const closed = Number(await redis.eval(closeQuestionScript, 1, gameKeys.state(sessionId))) === 1
+  if (!closed) return { closed: false, snapshot: await getSnapshot(sessionId) }
   await touchSession(sessionId)
-  return getSnapshot(sessionId)
+  return { closed: true, snapshot: await getSnapshot(sessionId) }
 }
 
 export async function getSnapshot(sessionId: string): Promise<GameSnapshot | null> {
@@ -167,7 +198,7 @@ export async function getSnapshot(sessionId: string): Promise<GameSnapshot | nul
     for (const [field, value] of Object.entries(values)) if (!field.startsWith('count:')) playerAnswers[field] = JSON.parse(value) as AnswerRecord
     answers[question.id] = { playerAnswers, choiceCounts }
   }
-  return { state, quiz, players: players.map(({ scoreReachedAt: _, ...player }) => player), answers }
+  return { state, quiz, players: players.map(({ scoreReachedAt: _, ...player }, index) => ({ ...player, rank: index + 1 })), answers }
 }
 
 export async function expireSession(sessionId: string): Promise<void> {

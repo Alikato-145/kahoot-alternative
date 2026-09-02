@@ -12,10 +12,10 @@ export type GameState = {
   deadlineAt: number | null
 }
 
-export type LivePlayer = { id: string; nickname: string; score: number }
+export type LivePlayer = { id: string; nickname: string; score: number; rank: number }
 export type AnswerRecord = { choiceId: string; earnedScore: number; elapsedMs: number; answeredAt: number }
 export type QuestionAnswers = { playerAnswers: Record<string, AnswerRecord>; choiceCounts: Record<string, number> }
 export type GameSnapshot = { state: GameState; quiz: Quiz; players: LivePlayer[]; answers: Record<string, QuestionAnswers> }
-export type Session = { id: string; pin: string }
+export type Session = { id: string; pin: string; hostToken: string }
 export type SubmitAnswerInput = { pin: string; playerId: string; questionId: string; choiceId: string }
 export type SubmitAnswerResult = { accepted: true; earnedScore: number } | { accepted: false }

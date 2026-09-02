@@ -1,6 +1,7 @@
-import { gameKeys, getRedis } from '../redis'
-import { closeQuestion, expireSession, getSnapshot, joinSession, setGameState, submitAnswer } from './store'
-import type { GameSnapshot, LivePlayer, SubmitAnswerInput, SubmitAnswerResult } from './types'
+import { randomUUID } from 'node:crypto'
+import { ACTIVE_SESSION_TTL_SECONDS, gameKeys, getRedis } from '../redis'
+import { closeQuestion, expireSession, getSnapshot, joinSession, submitAnswer, transitionGameState, verifyHostCapability } from './store'
+import type { GameSnapshot, LivePlayer, SubmitAnswerResult } from './types'
 
 export type GameServiceEvent =
   | { type: 'question:intro'; sessionId: string; questionId: string; questionIndex: number; body: string; questionImageUrl: string | null }
@@ -48,35 +49,49 @@ export class GameService {
 
   async sessionIdForPin(pin: string): Promise<string | null> { return getRedis().get(gameKeys.pin(pin)) }
 
-  async joinPlayer(pin: string, nickname: string, playerId?: string): Promise<{ sessionId: string; player: LivePlayer; snapshot: GameSnapshot }> {
+  async joinPlayer(pin: string, nickname: string, playerToken?: string): Promise<{ sessionId: string; player: LivePlayer; snapshot: GameSnapshot; playerToken: string }> {
     const sessionId = await this.sessionIdForPin(pin)
     if (!sessionId) throw new Error('Game PIN is invalid or expired')
     const current = requireSnapshot(await getSnapshot(sessionId), sessionId)
-    const reconnectingPlayer = playerId ? current.players.find((player) => player.id === playerId) : undefined
-    if (reconnectingPlayer) return { sessionId, player: reconnectingPlayer, snapshot: current }
-    const player = await joinSession(pin, nickname, playerId)
+    if (playerToken) {
+      const playerId = await getRedis().get(gameKeys.playerCapability(sessionId, playerToken))
+      const player = playerId ? current.players.find((candidate) => candidate.id === playerId) : undefined
+      if (player) {
+        await getRedis().expire(gameKeys.playerCapability(sessionId, playerToken), ACTIVE_SESSION_TTL_SECONDS)
+        return { sessionId, player, snapshot: current, playerToken }
+      }
+    }
+    const player = await joinSession(pin, nickname)
     const snapshot = requireSnapshot(await getSnapshot(sessionId), sessionId)
-    return { sessionId, player, snapshot }
+    const newPlayerToken = randomUUID()
+    await getRedis().set(gameKeys.playerCapability(sessionId, newPlayerToken), player.id, 'EX', ACTIVE_SESSION_TTL_SECONDS)
+    return { sessionId, player, snapshot, playerToken: newPlayerToken }
   }
 
-  async submitPlayerAnswer(input: SubmitAnswerInput): Promise<SubmitAnswerResult> { return submitAnswer(input) }
+  async verifyHost(sessionId: string, hostToken: string): Promise<boolean> { return verifyHostCapability(sessionId, hostToken) }
+
+  async submitPlayerAnswer(sessionId: string, playerId: string, questionId: string, choiceId: string): Promise<SubmitAnswerResult> {
+    const snapshot = requireSnapshot(await getSnapshot(sessionId), sessionId)
+    return submitAnswer({ pin: snapshot.state.pin, playerId, questionId, choiceId })
+  }
 
   async startGame(sessionId: string): Promise<GameServiceEvent> {
     const snapshot = requireSnapshot(await getSnapshot(sessionId), sessionId)
-    if (snapshot.state.phase !== 'lobby') throw new Error('Game can only start from the lobby')
     if (!snapshot.quiz.questions.length) throw new Error('Game needs at least one question')
-    await setGameState(sessionId, { phase: 'question-intro', currentQuestionIndex: 0, openedAt: null, deadlineAt: null })
+    const deadlineAt = Date.now() + this.introDurationMs
+    const state = await transitionGameState(sessionId, 'lobby', { phase: 'question-intro', currentQuestionIndex: 0, openedAt: null, deadlineAt })
+    if (!state) throw new Error('Game can only start from the lobby')
     return this.publishIntro(sessionId)
   }
 
   async openQuestion(sessionId: string): Promise<GameServiceEvent> {
     const snapshot = requireSnapshot(await getSnapshot(sessionId), sessionId)
-    if (snapshot.state.phase !== 'question-intro') throw new Error('Question can only open after its introduction')
     const question = questionFrom(snapshot)
     const openedAt = Date.now()
     const deadlineAt = openedAt + this.answerDurationMs
-    this.previousRanks.set(sessionId, new Map(snapshot.players.map((player, index) => [player.id, index + 1])))
-    await setGameState(sessionId, { phase: 'answering', openedAt, deadlineAt })
+    const state = await transitionGameState(sessionId, 'question-intro', { phase: 'answering', openedAt, deadlineAt })
+    if (!state) throw new Error('Question can only open after its introduction')
+    this.previousRanks.set(sessionId, new Map(snapshot.players.map((player) => [player.id, player.rank])))
     const event: GameServiceEvent = { type: 'question:open', sessionId, questionId: question.id, deadlineAt }
     this.publish(event)
     this.schedule(sessionId, this.answerDurationMs, () => this.revealQuestion(sessionId))
@@ -85,9 +100,10 @@ export class GameService {
 
   async revealQuestion(sessionId: string): Promise<{ events: GameServiceEvent[] }> {
     const beforeClose = requireSnapshot(await getSnapshot(sessionId), sessionId)
-    if (beforeClose.state.phase !== 'answering') throw new Error('Question can only be revealed while accepting answers')
     const question = questionFrom(beforeClose)
-    const snapshot = requireSnapshot(await closeQuestion(sessionId), sessionId)
+    const result = await closeQuestion(sessionId)
+    if (!result.closed) throw new Error('Question can only be revealed while accepting answers')
+    const snapshot = requireSnapshot(result.snapshot, sessionId)
     const answers = snapshot.answers[question.id]
     const correctChoice = question.choices.find((choice) => choice.isCorrect)
     if (!correctChoice) throw new Error(`Question ${question.id} has no correct choice`)
@@ -103,7 +119,8 @@ export class GameService {
       totalScore: player.score, previousRank: previousRanks.get(player.id) ?? index + 1, rank: index + 1,
     }))
     for (const event of rankEvents) this.publish(event)
-    await setGameState(sessionId, { phase: 'score-rank', openedAt: null, deadlineAt: null })
+    const rankedState = await transitionGameState(sessionId, 'reveal', { phase: 'score-rank', openedAt: null, deadlineAt: null })
+    if (!rankedState) throw new Error('Question reveal was superseded')
     const leaderboard: GameServiceEvent = { type: 'leaderboard:update', sessionId, players: snapshot.players }
     this.publish(leaderboard)
     return { events: [reveal, ...rankEvents, leaderboard] }
@@ -111,16 +128,18 @@ export class GameService {
 
   async nextQuestion(sessionId: string): Promise<GameServiceEvent> {
     const snapshot = requireSnapshot(await getSnapshot(sessionId), sessionId)
-    if (snapshot.state.phase !== 'score-rank') throw new Error('The host can only advance after rankings are shown')
     const nextIndex = (snapshot.state.currentQuestionIndex ?? -1) + 1
     if (nextIndex >= snapshot.quiz.questions.length) {
-      await setGameState(sessionId, { phase: 'final-results', openedAt: null, deadlineAt: null })
+      const state = await transitionGameState(sessionId, 'score-rank', { phase: 'final-results', openedAt: null, deadlineAt: null })
+      if (!state) throw new Error('The host can only advance after rankings are shown')
       await expireSession(sessionId)
       const event: GameServiceEvent = { type: 'game:final-results', sessionId, players: snapshot.players }
       this.publish(event)
       return event
     }
-    await setGameState(sessionId, { phase: 'question-intro', currentQuestionIndex: nextIndex, openedAt: null, deadlineAt: null })
+    const deadlineAt = Date.now() + this.introDurationMs
+    const state = await transitionGameState(sessionId, 'score-rank', { phase: 'question-intro', currentQuestionIndex: nextIndex, openedAt: null, deadlineAt })
+    if (!state) throw new Error('The host can only advance after rankings are shown')
     return this.publishIntro(sessionId)
   }
 
@@ -129,7 +148,7 @@ export class GameService {
     const question = questionFrom(snapshot)
     const event: GameServiceEvent = { type: 'question:intro', sessionId, questionId: question.id, questionIndex: question.position, body: question.body, questionImageUrl: question.questionImageUrl }
     this.publish(event)
-    this.schedule(sessionId, this.introDurationMs, () => this.openQuestion(sessionId))
+    this.schedule(sessionId, Math.max(0, (snapshot.state.deadlineAt ?? Date.now()) - Date.now()), () => this.openQuestion(sessionId))
     return event
   }
 
@@ -141,5 +160,25 @@ export class GameService {
     const timer = setTimeout(() => { this.timers.delete(sessionId); void callback().catch(() => undefined) }, delayMs)
     timer.unref?.()
     this.timers.set(sessionId, timer)
+  }
+
+  async reschedule(sessionId: string): Promise<void> {
+    const snapshot = await getSnapshot(sessionId)
+    if (!snapshot || !snapshot.state.deadlineAt) return
+    if (snapshot.state.phase === 'question-intro') {
+      this.schedule(sessionId, Math.max(0, snapshot.state.deadlineAt - Date.now()), () => this.openQuestion(sessionId))
+    } else if (snapshot.state.phase === 'answering') {
+      this.schedule(sessionId, Math.max(0, snapshot.state.deadlineAt - Date.now()), () => this.revealQuestion(sessionId))
+    }
+  }
+
+  async restoreTimers(): Promise<void> {
+    const redis = getRedis()
+    let cursor = '0'
+    do {
+      const [next, keys] = await redis.scan(cursor, 'MATCH', 'game:*:state', 'COUNT', 100)
+      cursor = next
+      await Promise.all(keys.map((key) => this.reschedule(key.split(':')[1])))
+    } while (cursor !== '0')
   }
 }

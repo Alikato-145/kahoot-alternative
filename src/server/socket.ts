@@ -15,27 +15,47 @@ function emitError(socket: Socket, error: unknown): void {
 export function registerGameSocketHandlers(io: Server, service = new GameService()): GameService {
   service.subscribe((event) => io.to(roomFor(event.sessionId)).emit(event.type, payload(event)))
   io.on('connection', (socket) => {
-    socket.on('player:join', async ({ pin, nickname, playerId }: { pin: string; nickname: string; playerId?: string }) => {
+    socket.on('player:join', async ({ pin, nickname, playerToken }: { pin: string; nickname: string; playerToken?: string }) => {
       try {
-        const joined = await service.joinPlayer(pin, nickname, playerId)
+        const joined = await service.joinPlayer(pin, nickname, playerToken)
+        socket.data.playerId = joined.player.id
+        socket.data.playerSessionId = joined.sessionId
         socket.join(roomFor(joined.sessionId))
-        socket.emit('room:joined', { sessionId: joined.sessionId, player: joined.player })
+        socket.emit('room:joined', { sessionId: joined.sessionId, player: joined.player, playerToken: joined.playerToken })
         socket.emit('game:state', joined.snapshot)
         io.to(roomFor(joined.sessionId)).emit('lobby:players', joined.snapshot.players)
+        await service.reschedule(joined.sessionId)
       } catch (error) { emitError(socket, error) }
     })
 
-    socket.on('player:answer', async (input) => {
+    socket.on('player:answer', async ({ questionId, choiceId }: { questionId: string; choiceId: string }) => {
       try {
-        const result = await service.submitPlayerAnswer(input)
+        const sessionId = socket.data.playerSessionId as string | undefined
+        const playerId = socket.data.playerId as string | undefined
+        if (!sessionId || !playerId) throw new Error('Join a game before answering')
+        const result = await service.submitPlayerAnswer(sessionId, playerId, questionId, choiceId)
         if (result.accepted) socket.emit('answer:accepted', result)
         else socket.emit('game:error', { message: 'Answer was not accepted' })
       } catch (error) { emitError(socket, error) }
     })
 
-    const host = (method: 'startGame' | 'revealQuestion' | 'nextQuestion') => async ({ sessionId }: { sessionId: string }) => {
+    socket.on('host:join', async ({ sessionId, hostToken }: { sessionId: string; hostToken: string }) => {
       try {
+        if (!await service.verifyHost(sessionId, hostToken)) throw new Error('Host capability is invalid')
+        socket.data.hostSessionId = sessionId
         socket.join(roomFor(sessionId))
+        const snapshot = await service.getSnapshot(sessionId)
+        if (!snapshot) throw new Error('Game session not found')
+        socket.emit('room:joined', { sessionId, role: 'host' })
+        socket.emit('game:state', snapshot)
+        await service.reschedule(sessionId)
+      } catch (error) { emitError(socket, error) }
+    })
+
+    const host = (method: 'startGame' | 'revealQuestion' | 'nextQuestion') => async () => {
+      try {
+        const sessionId = socket.data.hostSessionId as string | undefined
+        if (!sessionId) throw new Error('Host capability is required before controlling a game')
         await service[method](sessionId)
       } catch (error) { emitError(socket, error) }
     }
