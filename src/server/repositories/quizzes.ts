@@ -85,3 +85,8 @@ async function writeQuiz(id: string, input: QuizInput, isUpdate: boolean): Promi
 
 export function createQuiz(input: QuizInput): Promise<Quiz> { return writeQuiz(randomUUID(), input, false) }
 export function updateQuiz(id: string, input: QuizInput): Promise<Quiz> { return writeQuiz(id, input, true) }
+
+export async function deleteQuiz(id: string): Promise<boolean> {
+  const result = await query<ResultSetHeader>('DELETE FROM quizzes WHERE id = ?', [id])
+  return result.affectedRows > 0
+}

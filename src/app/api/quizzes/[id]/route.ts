@@ -1,0 +1,30 @@
+import { NextResponse } from 'next/server'
+import { deleteQuiz, getQuiz, updateQuiz } from '@/server/repositories/quizzes'
+import { removeQuizMedia } from '@/server/media'
+import { quizInputSchema } from '@/server/quiz-validation'
+import { z } from 'zod'
+
+type Context = { params: { id: string } }
+
+export async function GET(_: Request, { params }: Context): Promise<NextResponse> {
+  const quiz = await getQuiz(params.id)
+  return quiz ? NextResponse.json(quiz) : NextResponse.json({ error: 'Quiz not found' }, { status: 404 })
+}
+
+export async function PUT(request: Request, { params }: Context): Promise<NextResponse> {
+  try {
+    const quiz = await updateQuiz(params.id, quizInputSchema.parse(await request.json()))
+    return NextResponse.json(quiz)
+  } catch (error) {
+    if (error instanceof z.ZodError) return NextResponse.json({ error: 'Invalid quiz', details: error.flatten() }, { status: 422 })
+    if (error instanceof Error && error.message.startsWith('Quiz not found:')) return NextResponse.json({ error: 'Quiz not found' }, { status: 404 })
+    throw error
+  }
+}
+
+export async function DELETE(_: Request, { params }: Context): Promise<NextResponse> {
+  const deleted = await deleteQuiz(params.id)
+  if (!deleted) return NextResponse.json({ error: 'Quiz not found' }, { status: 404 })
+  await removeQuizMedia(params.id)
+  return new NextResponse(null, { status: 204 })
+}
