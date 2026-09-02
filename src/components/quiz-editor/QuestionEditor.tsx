@@ -3,7 +3,7 @@
 import type { EditorQuestion } from './QuizEditor'
 import { ImageUpload } from './ImageUpload'
 
-type Props = { question: EditorQuestion; index: number; quizId: string; onChange: (question: EditorQuestion) => void; onRemove: () => void }
+type Props = { question: EditorQuestion; index: number; quizId?: string; onChange: (question: EditorQuestion) => void; onRemove: () => void }
 
 export function QuestionEditor({ question, index, quizId, onChange, onRemove }: Props) {
   const setChoice = (choiceIndex: number, body: string) => onChange({ ...question, choices: question.choices.map((choice, current) => current === choiceIndex ? { ...choice, body } : choice) })

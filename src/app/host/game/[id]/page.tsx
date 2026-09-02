@@ -1,150 +1,28 @@
 'use client'
 
-import {
-  Answer,
-  Choice,
-  Game,
-  Participant,
-  Question,
-  QuizSet,
-  legacyBackend,
-} from '@/types/types'
 import { useEffect, useState } from 'react'
-import Lobby from './lobby'
-import Quiz from './quiz'
-import Results from './results'
+import { useParams, useSearchParams } from 'next/navigation'
+import { io, type Socket } from 'socket.io-client'
+import type { GameSnapshot } from '@/server/game/types'
 
-enum AdminScreens {
-  lobby = 'lobby',
-  quiz = 'quiz',
-  result = 'result',
-}
-
-export default function Home({
-  params: { id: gameId },
-}: {
-  params: { id: string }
-}) {
-  const [currentScreen, setCurrentScreen] = useState<AdminScreens>(
-    AdminScreens.lobby
-  )
-
-  const [participants, setParticipants] = useState<Participant[]>([])
-
-  const [quizSet, setQuizSet] = useState<QuizSet>()
+/** Task 4 protocol bridge. Projected Host views are added in Task 9. */
+export default function HostGamePage() {
+  const params = useParams<{ id: string }>()
+  const searchParams = useSearchParams()
+  const [snapshot, setSnapshot] = useState<GameSnapshot | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [socket, setSocket] = useState<Socket | null>(null)
+  const hostToken = searchParams.get('hostToken')
 
   useEffect(() => {
-    const getQuestions = async () => {
-      const { data: gameData, error: gameError } = await legacyBackend
-        .from('games')
-        .select()
-        .eq('id', gameId)
-        .single()
-      if (gameError) {
-        console.error(gameError.message)
-        alert('Error getting game data')
-        return
-      }
-      const { data, error } = await legacyBackend
-        .from('quiz_sets')
-        .select(`*, questions(*, choices(*))`)
-        .eq('id', gameData.quiz_set_id)
-        .order('order', {
-          ascending: true,
-          referencedTable: 'questions',
-        })
-        .single()
-      if (error) {
-        console.error(error.message)
-        getQuestions()
-        return
-      }
-      setQuizSet(data)
-    }
+    if (!hostToken) { setError('ลิงก์ผู้จัดเกมไม่ถูกต้อง'); return }
+    const connection = io({ path: '/socket.io' })
+    connection.on('connect', () => connection.emit('host:join', { sessionId: params.id, hostToken }))
+    connection.on('game:state', (nextSnapshot: GameSnapshot) => setSnapshot(nextSnapshot))
+    connection.on('game:error', ({ message }: { message: string }) => setError(message))
+    setSocket(connection)
+    return () => { setSocket(null); connection.disconnect() }
+  }, [hostToken, params.id])
 
-    const setGameListner = async () => {
-      const { data } = await legacyBackend
-        .from('participants')
-        .select()
-        .eq('game_id', gameId)
-        .order('created_at')
-      if (data) setParticipants(data)
-
-      legacyBackend
-        .channel('game')
-        .on(
-          'postgres_changes',
-          {
-            event: 'INSERT',
-            schema: 'public',
-            table: 'participants',
-            filter: `game_id=eq.${gameId}`,
-          },
-          (payload: any) => {
-            setParticipants((currentParticipants) => {
-              return [...currentParticipants, payload.new as Participant]
-            })
-          }
-        )
-        .on(
-          'postgres_changes',
-          {
-            event: 'UPDATE',
-            schema: 'public',
-            table: 'games',
-            filter: `id=eq.${gameId}`,
-          },
-          (payload: any) => {
-            // start the quiz game
-            const game = payload.new as Game
-            setCurrentQuestionSequence(game.current_question_sequence)
-            setCurrentScreen(game.phase as AdminScreens)
-          }
-        )
-        .subscribe()
-
-      const { data: gameData, error: gameError } = await legacyBackend
-        .from('games')
-        .select()
-        .eq('id', gameId)
-        .single()
-
-      if (gameError) {
-        alert(gameError.message)
-        console.error(gameError)
-        return
-      }
-
-      setCurrentQuestionSequence(gameData.current_question_sequence)
-      setCurrentScreen(gameData.phase as AdminScreens)
-    }
-
-    getQuestions()
-    setGameListner()
-  }, [gameId])
-
-  const [currentQuestionSequence, setCurrentQuestionSequence] = useState(0)
-
-  return (
-    <main className="bg-green-600 min-h-screen">
-      {currentScreen == AdminScreens.lobby && (
-        <Lobby participants={participants} gameId={gameId}></Lobby>
-      )}
-      {currentScreen == AdminScreens.quiz && (
-        <Quiz
-          question={quizSet!.questions![currentQuestionSequence]}
-          questionCount={quizSet!.questions!.length}
-          gameId={gameId}
-          participants={participants}
-        ></Quiz>
-      )}
-      {currentScreen == AdminScreens.result && (
-        <Results
-          participants={participants!}
-          quizSet={quizSet!}
-          gameId={gameId}
-        ></Results>
-      )}
-    </main>
-  )
+  return <main className="min-h-screen p-8"><h1 className="text-3xl font-bold">หน้าจอผู้จัดเกม</h1>{error && <p role="alert" className="mt-4 text-red-700">{error}</p>}{!snapshot ? <p className="mt-4" role="status">กำลังเชื่อมต่อเกม…</p> : <section className="mt-6 space-y-4"><p>PIN: <strong>{snapshot.state.pin}</strong></p><p>ผู้เล่น: {snapshot.players.map((player) => player.nickname).join(', ') || 'ยังไม่มีผู้เล่น'}</p><p>สถานะ: {snapshot.state.phase}</p>{snapshot.state.phase === 'lobby' && <button disabled={!socket} className="rounded bg-purple-700 px-5 py-3 font-bold text-white" onClick={() => socket?.emit('host:start')}>เริ่มเกม</button>}</section>}</main>
 }

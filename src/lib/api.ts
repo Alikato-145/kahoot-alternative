@@ -2,6 +2,11 @@ import type { Quiz, QuizInput } from '@/server/repositories/quizzes'
 
 type SessionResponse = { sessionId: string; pin: string; hostUrl: string; playerUrl: string }
 
+export function toHostGamePath(hostUrl: string): string {
+  const url = new URL(hostUrl)
+  return `${url.pathname}${url.search}`
+}
+
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, init)
   if (!response.ok) {
