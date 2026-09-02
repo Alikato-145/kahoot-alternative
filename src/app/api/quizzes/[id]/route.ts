@@ -23,8 +23,15 @@ export async function PUT(request: Request, { params }: Context): Promise<NextRe
 }
 
 export async function DELETE(_: Request, { params }: Context): Promise<NextResponse> {
-  const deleted = await deleteQuiz(params.id)
-  if (!deleted) return NextResponse.json({ error: 'Quiz not found' }, { status: 404 })
-  await removeQuizMedia(params.id)
-  return new NextResponse(null, { status: 204 })
+  try {
+    const deleted = await deleteQuiz(params.id)
+    if (!deleted) return NextResponse.json({ error: 'Quiz not found' }, { status: 404 })
+    await removeQuizMedia(params.id)
+    return new NextResponse(null, { status: 204 })
+  } catch (error) {
+    if (error instanceof Error && error.message.startsWith('Quiz cannot be deleted while a game session exists:')) {
+      return NextResponse.json({ error: 'Quiz has persisted game sessions and cannot be deleted' }, { status: 409 })
+    }
+    throw error
+  }
 }

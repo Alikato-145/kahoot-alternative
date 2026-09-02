@@ -3,8 +3,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const repository = vi.hoisted(() => ({
   createQuiz: vi.fn(), getQuiz: vi.fn(), listQuizzes: vi.fn(), updateQuiz: vi.fn(), deleteQuiz: vi.fn(),
 }))
+const media = vi.hoisted(() => ({ removeQuizMedia: vi.fn() }))
 vi.mock('@/server/repositories/quizzes', () => repository)
-vi.mock('@/server/media', () => ({ removeQuizMedia: vi.fn() }))
+vi.mock('@/server/media', () => media)
 
 const validQuiz = {
   title: 'ค่ายฤดูร้อน', description: '', questions: [{ body: 'คำถาม', choices: [
@@ -40,5 +41,13 @@ describe('quiz API routes', () => {
     repository.getQuiz.mockResolvedValue(null)
     const { GET } = await import('@/app/api/quizzes/[id]/route')
     expect((await GET(new Request('http://localhost/api/quizzes/missing'), { params: { id: 'missing' } })).status).toBe(404)
+  })
+
+  it('refuses to delete a quiz with a persisted game session without removing its media', async () => {
+    repository.deleteQuiz.mockRejectedValue(new Error('Quiz cannot be deleted while a game session exists: quiz-1'))
+    const { DELETE } = await import('@/app/api/quizzes/[id]/route')
+    const response = await DELETE(new Request('http://localhost/api/quizzes/quiz-1', { method: 'DELETE' }), { params: { id: 'quiz-1' } })
+    expect(response.status).toBe(409)
+    expect(media.removeQuizMedia).not.toHaveBeenCalled()
   })
 })

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { randomUUID } from 'node:crypto'
-import { createQuiz, getQuiz, listQuizzes, updateQuiz } from '@/server/repositories/quizzes'
+import { createQuiz, deleteQuiz, getQuiz, listQuizzes, updateQuiz } from '@/server/repositories/quizzes'
 import { query } from '@/server/db'
 
 process.env.DATABASE_URL ??= 'mysql://campquiz:campquiz@localhost:3306/camp_quiz'
@@ -94,5 +94,16 @@ describe('quiz repository', () => {
     await expect(updateQuiz(created.id, { title: 'แก้ไขไม่ได้', description: '', questions: [questionInput] }))
       .rejects.toThrow('cannot be updated while a game session exists')
     expect((await getQuiz(created.id))?.title).toBe('กำลังเล่น')
+  })
+
+  it('refuses to delete a quiz with a persisted game session', async () => {
+    const created = await createQuiz({ title: 'เก็บประวัติ', description: '', questions: [questionInput] })
+    await query(
+      'INSERT INTO game_sessions (id, quiz_id, pin, status) VALUES (?, ?, ?, ?)',
+      [randomUUID(), created.id, String(Math.floor(Math.random() * 1_000_000)).padStart(6, '0'), 'active'],
+    )
+
+    await expect(deleteQuiz(created.id)).rejects.toThrow('cannot be deleted while a game session exists')
+    expect(await getQuiz(created.id)).not.toBeNull()
   })
 })

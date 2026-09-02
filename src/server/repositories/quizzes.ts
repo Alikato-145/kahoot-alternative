@@ -87,6 +87,12 @@ export function createQuiz(input: QuizInput): Promise<Quiz> { return writeQuiz(r
 export function updateQuiz(id: string, input: QuizInput): Promise<Quiz> { return writeQuiz(id, input, true) }
 
 export async function deleteQuiz(id: string): Promise<boolean> {
-  const result = await query<ResultSetHeader>('DELETE FROM quizzes WHERE id = ?', [id])
-  return result.affectedRows > 0
+  return transaction(async (connection) => {
+    const [sessions] = await connection.execute<RowDataPacket[]>(
+      'SELECT 1 FROM game_sessions WHERE quiz_id = ? LIMIT 1 FOR UPDATE', [id],
+    )
+    if (sessions.length > 0) throw new Error(`Quiz cannot be deleted while a game session exists: ${id}`)
+    const [result] = await connection.execute<ResultSetHeader>('DELETE FROM quizzes WHERE id = ?', [id])
+    return result.affectedRows > 0
+  })
 }
