@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import React from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { HostReveal } from '@/components/game/HostReveal'
-import { applyHostQuestionEvent } from '@/components/game/HostGame'
+import { applyHostQuestionEvent, applyHostRankUpdate, HostScoreboard } from '@/components/game/HostGame'
 
 const longThaiExplanation = 'เพราะโลกโคจรรอบดวงอาทิตย์และหมุนรอบตัวเองอย่างต่อเนื่อง จึงเกิดกลางวันและกลางคืน'
 
@@ -41,5 +41,25 @@ describe('live Host question state', () => {
 
     expect(view.answerCount).toBe(3)
     expect(view).not.toHaveProperty('choiceId')
+  })
+})
+
+describe('projected Host rankings', () => {
+  it('updates the projected ordering from a score:rank-update and renders the animated leaderboard', () => {
+    const players = applyHostRankUpdate([
+      { id: 'one', nickname: 'หนึ่ง', score: 300, rank: 1 },
+      { id: 'two', nickname: 'สอง', score: 200, rank: 2 },
+    ], { playerId: 'two', totalScore: 900, rank: 1 })
+
+    expect(players.map((player) => player.id)).toEqual(['two', 'one'])
+    const markup = renderToStaticMarkup(<HostScoreboard players={players} final={false} />)
+    expect(markup).toContain('ตารางคะแนนรอบนี้')
+    expect(markup).toContain('#1 สอง')
+    expect(markup).toContain('aria-label="ตารางคะแนน"')
+  })
+
+  it('renders final standings from game:final-results instead of the reveal screen', () => {
+    const markup = renderToStaticMarkup(<HostScoreboard players={[{ id: 'one', nickname: 'หนึ่ง', score: 1200, rank: 1 }]} final />)
+    expect(markup).toContain('อันดับสุดท้าย')
   })
 })

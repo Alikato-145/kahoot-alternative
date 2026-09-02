@@ -1,8 +1,9 @@
 'use client'
 
-import React, { useLayoutEffect, useRef } from 'react'
+import React, { useEffect, useLayoutEffect, useRef } from 'react'
 
 export type RankMotionPlayer = { id: string; nickname: string; score: number; rank: number }
+const useIsomorphicLayoutEffect = typeof window === 'undefined' ? useEffect : useLayoutEffect
 
 /** The inverse transform used by FLIP when a leaderboard row changes vertical position. */
 export function rankMotionTransform(previousTop: number, nextTop: number): string {
@@ -13,7 +14,7 @@ export function RankMotion({ players }: { players: RankMotionPlayer[] }) {
   const rows = useRef(new Map<string, HTMLLIElement>())
   const previousTops = useRef(new Map<string, number>())
 
-  useLayoutEffect(() => {
+  useIsomorphicLayoutEffect(() => {
     const nextTops = new Map<string, number>()
     for (const player of players) {
       const row = rows.current.get(player.id)

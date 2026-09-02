@@ -37,7 +37,7 @@ describe('migration runner', () => {
     }
     const runInTransaction = async <T>(work: (executor: typeof connection) => Promise<T>) => work(connection)
 
-    await expect(runMigrations({ pool, runInTransaction })).resolves.toEqual(['001_initial_schema.sql'])
+    await expect(runMigrations({ pool, runInTransaction })).resolves.toEqual(['001_initial_schema.sql', '002_allow_reused_game_pins.sql'])
     await expect(runMigrations({ pool, runInTransaction })).resolves.toEqual([])
   })
 })
