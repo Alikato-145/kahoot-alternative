@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import React from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { HostReveal } from '@/components/game/HostReveal'
-import { applyHostQuestionEvent, applyHostRankUpdate, leaderboardPlayers, HostScoreboard } from '@/components/game/HostGame'
+import { applyHostQuestionEvent, applyHostRankUpdate, hostTiming, leaderboardPlayers, HostScoreboard } from '@/components/game/HostGame'
 
 const longThaiExplanation = 'เพราะโลกโคจรรอบดวงอาทิตย์และหมุนรอบตัวเองอย่างต่อเนื่อง จึงเกิดกลางวันและกลางคืน'
 
@@ -30,6 +30,9 @@ describe('HostReveal', () => {
 })
 
 describe('live Host question state', () => {
+  it('falls back to a visible countdown when a legacy socket event lacks timing fields', () => {
+    expect(hostTiming({}, 5_000, 1_000)).toEqual({ openedAt: 1_000, deadlineAt: 6_000 })
+  })
   it('retains the server answer deadline received after the lobby snapshot', () => {
     const view = applyHostQuestionEvent({ questionId: 'question-1', openedAt: null, deadlineAt: null, answerCount: 0 }, { type: 'question:open', questionId: 'question-1', openedAt: 1_724_999_980_000, deadlineAt: 1_725_000_000_000 })
 

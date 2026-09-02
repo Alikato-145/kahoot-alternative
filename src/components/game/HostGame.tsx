@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import type { GameSnapshot, LivePlayer } from '@/server/game/types'
 import type { Question } from '@/server/repositories/quizzes'
 import { getGameSocket } from '@/lib/socket'
@@ -17,6 +17,12 @@ export type HostQuestionState = { questionId: string | null; openedAt: number | 
 export type HostQuestionEvent =
   | { type: 'question:open'; questionId: string; openedAt: number; deadlineAt: number }
   | { type: 'question:answer-progress'; questionId: string; answerCount: number }
+
+export function hostTiming(event: { openedAt?: unknown; deadlineAt?: unknown }, durationMs: number, now = Date.now()): { openedAt: number; deadlineAt: number } {
+  return typeof event.openedAt === 'number' && typeof event.deadlineAt === 'number' && event.deadlineAt > event.openedAt
+    ? { openedAt: event.openedAt, deadlineAt: event.deadlineAt }
+    : { openedAt: now, deadlineAt: now + durationMs }
+}
 
 /** Applies the only two safe live question updates received by the projected Host. */
 export function applyHostQuestionEvent(current: HostQuestionState, event: HostQuestionEvent): HostQuestionState {
@@ -44,23 +50,24 @@ export function HostGame({ sessionId, hostToken }: { sessionId: string; hostToke
   const [players, setPlayers] = useState<LivePlayer[]>([])
   const [rankBroadcast, setRankBroadcast] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const revealTransitionTimer = useRef<number | null>(null)
 
   useEffect(() => {
     const socket = getGameSocket()
     const join = () => socket.emit('host:join', { sessionId, hostToken })
     const onState = (next: GameSnapshot) => { setSnapshot(next); setPlayers(next.players); setPhase(next.state.phase); const index = next.state.currentQuestionIndex; const id = index === null ? null : next.quiz.questions[index]?.id ?? null; setQuestionId(id); setQuestionState({ questionId: id, openedAt: next.state.openedAt, deadlineAt: next.state.deadlineAt, answerCount: id ? Object.keys(next.answers[id]?.playerAnswers ?? {}).length : 0 }); setRankBroadcast(next.state.phase === 'score-rank') }
     const onLobby = (next: LivePlayer[]) => setPlayers(next)
-    const onIntro = ({ questionId: id, openedAt, deadlineAt }: { questionId: string; openedAt: number; deadlineAt: number }) => { setQuestionId(id); setQuestionState({ questionId: id, openedAt, deadlineAt, answerCount: 0 }); setPhase('question-intro'); setReveal(null); setRankBroadcast(false) }
-    const onOpen = (event: Extract<HostQuestionEvent, { type: 'question:open' }>) => { setQuestionId(event.questionId); setQuestionState((current) => applyHostQuestionEvent(current.questionId === event.questionId ? current : { questionId: event.questionId, openedAt: null, deadlineAt: null, answerCount: 0 }, event)); setPhase('answering') }
+    const onIntro = (event: { questionId: string; openedAt?: number; deadlineAt?: number }) => { const timing = hostTiming(event, 5_000); setQuestionId(event.questionId); setQuestionState({ questionId: event.questionId, ...timing, answerCount: 0 }); setPhase('question-intro'); setReveal(null); setRankBroadcast(false) }
+    const onOpen = (event: { questionId: string; openedAt?: number; deadlineAt?: number }) => { const timing = hostTiming(event, 20_000); setQuestionId(event.questionId); setQuestionState((current) => applyHostQuestionEvent(current.questionId === event.questionId ? current : { questionId: event.questionId, openedAt: null, deadlineAt: null, answerCount: 0 }, { type: 'question:open', questionId: event.questionId, ...timing })); setPhase('answering') }
     const onAnswerProgress = (event: Extract<HostQuestionEvent, { type: 'question:answer-progress' }>) => setQuestionState((current) => applyHostQuestionEvent(current, event))
     const onReveal = (next: RevealEvent) => { setQuestionId(next.questionId); setReveal(next); setPhase('reveal') }
-    const onRank = (next: { playerId: string; totalScore: number; rank: number }) => { setPlayers((current) => applyHostRankUpdate(current, next)); setPhase('score-rank') }
-    const onRanks = (next: { players: LivePlayer[] }) => { setPlayers(leaderboardPlayers(next)); setPhase('score-rank'); setRankBroadcast(true) }
+    const onRank = (next: { playerId: string; totalScore: number; rank: number }) => setPlayers((current) => applyHostRankUpdate(current, next))
+    const onRanks = (next: { players: LivePlayer[] }) => { setPlayers(leaderboardPlayers(next)); if (revealTransitionTimer.current) window.clearTimeout(revealTransitionTimer.current); revealTransitionTimer.current = window.setTimeout(() => { setPhase('score-rank'); setRankBroadcast(true) }, 4_000) }
     const onFinal = ({ players: next }: { players: LivePlayer[] }) => { setPlayers(next); setPhase('final-results'); setRankBroadcast(false) }
     const onError = ({ message }: { message: string }) => setError(message)
     socket.on('connect', join).on('game:state', onState).on('lobby:players', onLobby).on('question:intro', onIntro).on('question:open', onOpen).on('question:answer-progress', onAnswerProgress).on('question:reveal', onReveal).on('score:rank-update', onRank).on('leaderboard:update', onRanks).on('game:final-results', onFinal).on('game:error', onError)
     if (socket.connected) join()
-    return () => { socket.off('connect', join).off('game:state', onState).off('lobby:players', onLobby).off('question:intro', onIntro).off('question:open', onOpen).off('question:answer-progress', onAnswerProgress).off('question:reveal', onReveal).off('score:rank-update', onRank).off('leaderboard:update', onRanks).off('game:final-results', onFinal).off('game:error', onError) }
+    return () => { if (revealTransitionTimer.current) window.clearTimeout(revealTransitionTimer.current); socket.off('connect', join).off('game:state', onState).off('lobby:players', onLobby).off('question:intro', onIntro).off('question:open', onOpen).off('question:answer-progress', onAnswerProgress).off('question:reveal', onReveal).off('score:rank-update', onRank).off('leaderboard:update', onRanks).off('game:final-results', onFinal).off('game:error', onError) }
   }, [hostToken, sessionId])
 
   const question = useMemo<Question | undefined>(() => snapshot?.quiz.questions.find((candidate) => candidate.id === questionId), [snapshot, questionId])
