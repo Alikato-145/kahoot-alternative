@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import React from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { PlayerQuestion } from '@/components/game/PlayerQuestion'
+import { createAnswerSubmission, joinPayloadFromStorage } from '@/components/game/PlayerGame'
 
 const question = {
   id: 'question-1',
@@ -30,5 +31,23 @@ describe('PlayerQuestion', () => {
     const markup = renderToStaticMarkup(<PlayerQuestion question={question} phase="answering" onAnswer={vi.fn()} submitted />)
 
     expect((markup.match(/disabled/g) ?? [])).toHaveLength(4)
+  })
+
+  it('emits one answer payload and marks the tiles disabled after a click', () => {
+    const emit = vi.fn()
+    const submit = createAnswerSubmission({ pin: '842193', playerId: 'player-token', nickname: 'มานัส' }, 'question-1', emit)
+
+    expect(submit('choice-1')).toBe(true)
+    expect(emit).toHaveBeenCalledWith('player:answer', { pin: '842193', playerId: 'player-token', questionId: 'question-1', choiceId: 'choice-1' })
+    expect(submit('choice-2')).toBe(false)
+    expect(renderToStaticMarkup(<PlayerQuestion question={question} phase="answering" onAnswer={submit} submitted={submit.submitted} />).match(/disabled/g)).toHaveLength(4)
+  })
+
+  it('reads the newest stored token for every reconnect join payload', () => {
+    let stored = JSON.stringify({ pin: '842193', playerId: 'old-token', nickname: 'มานัส' })
+    expect(joinPayloadFromStorage('842193', () => stored)).toEqual({ pin: '842193', nickname: 'มานัส', playerToken: 'old-token' })
+
+    stored = JSON.stringify({ pin: '842193', playerId: 'fresh-token', nickname: 'มานัส' })
+    expect(joinPayloadFromStorage('842193', () => stored)).toEqual({ pin: '842193', nickname: 'มานัส', playerToken: 'fresh-token' })
   })
 })

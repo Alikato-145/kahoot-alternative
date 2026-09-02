@@ -95,4 +95,20 @@ describe('Socket.IO game protocol', () => {
     host.disconnect()
     await new Promise<void>((resolve) => io.close(() => httpServer.close(() => resolve())))
   })
+
+  it('rejects malformed player PINs and nicknames before joining the game service', async () => {
+    const socket = client(address, { path: '/socket.io', forceNew: true })
+    sockets.push(socket)
+    await once(socket, 'connect')
+
+    const invalidPin = once(socket, 'game:error')
+    socket.emit('player:join', { pin: '123', nickname: 'มานัส' })
+    expect(await invalidPin).toMatchObject({ message: expect.stringMatching(/PIN/i) })
+
+    const invalidNickname = once(socket, 'game:error')
+    socket.emit('player:join', { pin: '842193', nickname: ' ' })
+    expect(await invalidNickname).toMatchObject({ message: expect.stringMatching(/nickname/i) })
+    socket.disconnect()
+    await new Promise<void>((resolve) => io.close(() => httpServer.close(() => resolve())))
+  })
 })

@@ -1,7 +1,10 @@
 import type { Server, Socket } from 'socket.io'
+import { z } from 'zod'
 import { GameService, type GameServiceEvent } from './game/service'
 
 const roomFor = (sessionId: string) => `game:${sessionId}`
+const playerJoinSchema = z.object({ pin: z.string().regex(/^\d{6}$/, 'PIN must contain exactly six digits'), nickname: z.string().trim().min(1, 'Nickname is required').max(20, 'Nickname must be 20 characters or fewer'), playerToken: z.string().optional() })
+export function parsePlayerJoin(input: unknown) { return playerJoinSchema.parse(input) }
 
 function payload(event: GameServiceEvent): Omit<GameServiceEvent, 'sessionId' | 'type'> {
   const { sessionId: _, type: __, ...rest } = event
@@ -15,8 +18,9 @@ function emitError(socket: Socket, error: unknown): void {
 export function registerGameSocketHandlers(io: Server, service = new GameService()): GameService {
   service.subscribe((event) => io.to(roomFor(event.sessionId)).emit(event.type, payload(event)))
   io.on('connection', (socket) => {
-    socket.on('player:join', async ({ pin, nickname, playerToken }: { pin: string; nickname: string; playerToken?: string }) => {
+    socket.on('player:join', async (input: unknown) => {
       try {
+        const { pin, nickname, playerToken } = parsePlayerJoin(input)
         const joined = await service.joinPlayer(pin, nickname, playerToken)
         socket.data.playerId = joined.player.id
         socket.data.playerSessionId = joined.sessionId
