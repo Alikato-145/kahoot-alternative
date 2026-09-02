@@ -10,6 +10,17 @@ body {
     font-family: Arial, 'Noto Sans Thai', sans-serif;
 }
 
+/* Form controls do not inherit the white page text on their white surfaces. */
+input, textarea, select {
+    color: #241044;
+    background: #fff;
+}
+
+input::placeholder, textarea::placeholder {
+    color: #6b5a85;
+    opacity: 1;
+}
+
 .game-shell {
     box-sizing: border-box;
     min-height: 100svh;
