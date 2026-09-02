@@ -8,6 +8,7 @@ import { QuestionEditor } from './QuestionEditor'
 
 export type EditorQuestion = QuizInput['questions'][number]
 export type EditorQuiz = { id?: string; title: string; description: string; coverImageUrl?: string | null; questions: EditorQuestion[] }
+export type PendingImage = { questionIndex: number; field: 'questionImageUrl' | 'revealImageUrl'; file: File }
 
 const blankQuestion = (): EditorQuestion => ({ body: '', questionImageUrl: null, revealImageUrl: null, explanation: '', choices: Array.from({ length: 4 }, () => ({ body: '', isCorrect: false })) })
 export const emptyQuiz: EditorQuiz = { title: '', description: '', coverImageUrl: null, questions: [blankQuestion()] }
@@ -21,12 +22,28 @@ export function validateQuizForSubmission(quiz: EditorQuiz): string | null {
 
 function toEditorQuiz(quiz: Quiz): EditorQuiz { return { id: quiz.id, title: quiz.title, description: quiz.description, coverImageUrl: quiz.coverImageUrl, questions: quiz.questions.map(({ body, questionImageUrl, revealImageUrl, explanation, choices }) => ({ body, questionImageUrl, revealImageUrl, explanation: explanation ?? '', choices: choices.map(({ body: choiceBody, isCorrect }) => ({ body: choiceBody, isCorrect })) })) } }
 
+export async function persistPendingImages(quizId: string, quiz: EditorQuiz, pendingImages: Map<string, PendingImage>, uploadImage: (quizId: string, file: File) => Promise<string>): Promise<EditorQuiz> {
+  let updated = quiz
+  for (const { questionIndex, field, file } of Array.from(pendingImages.values())) {
+    const url = await uploadImage(quizId, file)
+    updated = { ...updated, questions: updated.questions.map((question, index) => index === questionIndex ? { ...question, [field]: url } : question) }
+  }
+  return updated
+}
+
 export function QuizEditor({ initialQuiz, quizId }: { initialQuiz?: Quiz; quizId?: string }) {
   const router = useRouter()
   const [quiz, setQuiz] = useState<EditorQuiz>(initialQuiz ? toEditorQuiz(initialQuiz) : emptyQuiz)
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
-  const uploadQuizId = quizId ?? initialQuiz?.id
+  const [createdQuizId, setCreatedQuizId] = useState<string | undefined>()
+  const [pendingImages, setPendingImages] = useState<Map<string, PendingImage>>(new Map())
+  const uploadQuizId = quizId ?? initialQuiz?.id ?? createdQuizId
+
+  function setPendingImage(questionIndex: number, field: PendingImage['field'], file: File | null) {
+    const key = `${questionIndex}:${field}`
+    setPendingImages((current) => { const next = new Map(current); if (file) next.set(key, { questionIndex, field, file }); else next.delete(key); return next })
+  }
 
   async function submit(event: FormEvent) {
     event.preventDefault()
@@ -34,7 +51,11 @@ export function QuizEditor({ initialQuiz, quizId }: { initialQuiz?: Quiz; quizId
     if (validationError) { setError(validationError); return }
     setSaving(true); setError(null)
     try {
-      const saved = quizId ? await quizApi.update(quizId, quiz) : await quizApi.create(quiz)
+      const saved = uploadQuizId ? await quizApi.update(uploadQuizId, quiz) : await quizApi.create(quiz)
+      if (!uploadQuizId) setCreatedQuizId(saved.id)
+      const quizWithImages = await persistPendingImages(saved.id, quiz, pendingImages, quizApi.uploadImage)
+      if (pendingImages.size) await quizApi.update(saved.id, quizWithImages)
+      setQuiz(quizWithImages); setPendingImages(new Map())
       router.push(`/host/quizzes/${saved.id}/edit`)
       router.refresh()
     } catch (saveError) { setError(saveError instanceof Error ? saveError.message : 'บันทึก Quiz ไม่สำเร็จ') } finally { setSaving(false) }
@@ -45,8 +66,8 @@ export function QuizEditor({ initialQuiz, quizId }: { initialQuiz?: Quiz; quizId
     {error && <p role="alert" className="rounded bg-red-100 p-3 text-red-800">{error}</p>}
     <label className="block font-medium">ชื่อ Quiz<input className="mt-1 block w-full rounded border p-2" value={quiz.title} onChange={(event) => setQuiz({ ...quiz, title: event.target.value })} required /></label>
     <label className="block font-medium">รายละเอียด<textarea className="mt-1 block w-full rounded border p-2" value={quiz.description} onChange={(event) => setQuiz({ ...quiz, description: event.target.value })} /></label>
-    {!uploadQuizId && <p className="rounded bg-amber-50 p-3 text-amber-900">บันทึก Quiz ก่อนจึงจะอัปโหลดรูปคำถามหรือรูปเฉลยได้</p>}
-    {quiz.questions.map((question, index) => <QuestionEditor key={index} question={question} index={index} quizId={uploadQuizId} onChange={(updated) => setQuiz({ ...quiz, questions: quiz.questions.map((item, current) => current === index ? updated : item) })} onRemove={() => setQuiz({ ...quiz, questions: quiz.questions.filter((_, current) => current !== index) })} />)}
+    {!uploadQuizId && <p className="rounded bg-amber-50 p-3 text-amber-900">เลือกรูปได้เลย ระบบจะอัปโหลดให้หลังบันทึก Quiz ครั้งแรก</p>}
+    {quiz.questions.map((question, index) => <QuestionEditor key={index} question={question} index={index} quizId={uploadQuizId} onPendingImage={(field, file) => setPendingImage(index, field, file)} onChange={(updated) => setQuiz({ ...quiz, questions: quiz.questions.map((item, current) => current === index ? updated : item) })} onRemove={() => setQuiz({ ...quiz, questions: quiz.questions.filter((_, current) => current !== index) })} />)}
     <button type="button" className="rounded bg-slate-200 px-4 py-2" onClick={() => setQuiz({ ...quiz, questions: [...quiz.questions, blankQuestion()] })}>เพิ่มคำถาม</button>
     <div className="flex gap-3"><button type="submit" disabled={saving} className="rounded bg-purple-700 px-5 py-3 font-bold text-white disabled:opacity-50">{saving ? 'กำลังบันทึก…' : 'บันทึก Quiz'}</button><button type="button" className="rounded border px-5 py-3" onClick={() => router.push('/host')}>ยกเลิก</button></div>
   </form>
