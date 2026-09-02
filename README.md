@@ -1,62 +1,38 @@
+# Camp Quiz
 
-# Open source Kahoot alternative
+Camp Quiz is a Thai, Kahoot-inspired game for a projected Host screen and players joining from their phones. A Host creates a quiz with exactly four answers per question, optional question/reveal images, and an explanation. Live rooms use Socket.IO and Redis; MySQL keeps quiz content and final results.
 
-This is an open source Kahoot alternative , a game-based learning platform that brings engagement and fun at school, work, and at home.
-This project aims to provide similar functionality to Kahoot while being customizable and extensible for various educational and entertainment purposes.
+## Quick start
 
-
-1. The host starts the game
-1. Players join the game
-1. The host starts the questions
-1. Players answer the questions
-1. Results are shown
-
-
-##  Built With
-* [Nextjs](https://nextjs.org/)
-* [Supabase](https://supabase.com/)
-* [Tailwind CSS](https://tailwindcss.com/)
-
-
-## Run Locally
 ```sh
-# Install dependencies 
-
-npm install
-
-# Start Supabase
-
-supabase start
-
-# Start Next.js locally
-
+cp .env.example .env
+docker compose up -d
+npm ci
+npm run db:migrate
 npm run dev
-
-# Access app in your web browser at `http://localhost:3000`. 
-
 ```
 
-Access the project root at / to join as a player.
+Open `http://localhost:3000/host` to make a quiz and start a room. Players open `http://localhost:3000/join` (or scan the Host QR code), enter the six-digit PIN, then choose a nickname.
 
-Access /host to join as a host.
+Run checks with:
 
-## Generate Types
+```sh
+npm run test
+npm run build
+npm run e2e
+```
 
-`supabase gen types typescript --local --schema public > src/types/supabase.ts`
+For public HTTPS/WSS setup, database backups, and the five-phone rehearsal checklist, read [the operations guide](docs/operations.md).
 
-[read more on generating types](https://supabase.com/docs/guides/api/rest/generating-types)
+## Architecture
 
+- Next.js + Socket.IO: UI, REST routes, and real-time game protocol
+- Redis: active PINs, players, answer state, timers, and scores
+- MySQL: authored quizzes and durable final rankings
+- Nginx: HTTPS, WSS upgrade proxy, and `/media/` image delivery
 
-## Contributing
-
-We welcome contributions from the community! If you'd like to contribute, please follow these guidelines:
-
-1. Fork the repository.
-2. Create your feature branch (`git checkout -b feature/YourFeature`).
-3. Commit your changes (`git commit -am 'Add some feature'`).
-4. Push to the branch (`git push origin feature/YourFeature`).
-5. Create a new Pull Request.
+Docker Compose is for local development only. Production runs Node under systemd with local MySQL/Redis and Nginx; it does not require Docker.
 
 ## License
-This project is licensed under the [MIT License](https://choosealicense.com/licenses/mit/)
 
+[MIT](LICENSE)
