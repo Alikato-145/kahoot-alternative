@@ -29,7 +29,7 @@ local openedAt = tonumber(state.openedAt) or now
 local deadlineMs = math.max(1, tonumber(state.deadlineAt) - openedAt)
 local elapsedMs = math.max(0, now - openedAt)
 local earnedScore = 0
-if selected.isCorrect then
+if selected.isCorrect == true or selected.isCorrect == 1 then
   earnedScore = math.max(0, 1000 - math.floor(1000 * math.min(elapsedMs / deadlineMs, 1) + 0.5))
 end
 local answer = cjson.encode({choiceId = ARGV[3], earnedScore = earnedScore, elapsedMs = elapsedMs, answeredAt = now})

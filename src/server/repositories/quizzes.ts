@@ -61,7 +61,7 @@ async function writeQuiz(id: string, input: QuizInput, isUpdate: boolean): Promi
   await transaction(async (connection) => {
     if (isUpdate) {
       const [sessions] = await connection.execute<RowDataPacket[]>(
-        'SELECT 1 FROM game_sessions WHERE quiz_id = ? LIMIT 1 FOR UPDATE',
+        "SELECT 1 FROM game_sessions WHERE quiz_id = ? AND status <> 'completed' LIMIT 1 FOR UPDATE",
         [id],
       )
       if (sessions.length > 0) {
