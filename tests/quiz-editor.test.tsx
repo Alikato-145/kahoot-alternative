@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { emptyQuiz, persistPendingImages, validateQuizForSubmission } from '@/components/quiz-editor/QuizEditor'
+import { emptyQuiz, orderedQuizInput, persistPendingImages, validateQuizForSubmission } from '@/components/quiz-editor/QuizEditor'
 import { canUploadImages } from '@/components/quiz-editor/ImageUpload'
 import { toHostGamePath } from '@/lib/api'
 
@@ -48,5 +48,13 @@ describe('QuizEditor submission contract', () => {
 
   it('preserves the host capability when navigating to a new game', () => {
     expect(toHostGamePath('https://quiz.example/host/game/session-1?hostToken=capability')).toBe('/host/game/session-1?hostToken=capability')
+  })
+
+  it('sorts questions by their Host-selected order before saving', () => {
+    const quiz = { ...emptyQuiz, title: 'ค่าย', questions: [
+      { ...emptyQuiz.questions[0], order: 2, body: 'ข้อสอง' },
+      { ...emptyQuiz.questions[0], order: 1, body: 'ข้อหนึ่ง' },
+    ] }
+    expect(orderedQuizInput(quiz).questions.map((question) => question.body)).toEqual(['ข้อหนึ่ง', 'ข้อสอง'])
   })
 })

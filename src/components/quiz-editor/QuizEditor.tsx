@@ -6,11 +6,11 @@ import type { Quiz, QuizInput } from '@/server/repositories/quizzes'
 import { quizApi } from '@/lib/api'
 import { QuestionEditor } from './QuestionEditor'
 
-export type EditorQuestion = QuizInput['questions'][number]
+export type EditorQuestion = QuizInput['questions'][number] & { order?: number }
 export type EditorQuiz = { id?: string; title: string; description: string; coverImageUrl?: string | null; timing?: NonNullable<QuizInput['timing']>; questions: EditorQuestion[] }
 export type PendingImage = { questionIndex: number; field: 'questionImageUrl' | 'revealImageUrl'; file: File }
 
-const blankQuestion = (): EditorQuestion => ({ body: '', questionImageUrl: null, revealImageUrl: null, explanation: '', choices: Array.from({ length: 4 }, () => ({ body: '', isCorrect: false })) })
+const blankQuestion = (order = 1): EditorQuestion => ({ order, body: '', questionImageUrl: null, revealImageUrl: null, explanation: '', choices: Array.from({ length: 4 }, () => ({ body: '', isCorrect: false })) })
 export const emptyQuiz: EditorQuiz = { title: '', description: '', coverImageUrl: null, timing: { introDurationSeconds: 5, answerDurationSeconds: 20, revealDurationSeconds: 4 }, questions: [blankQuestion()] }
 
 export function validateQuizForSubmission(quiz: EditorQuiz): string | null {
@@ -22,7 +22,14 @@ export function validateQuizForSubmission(quiz: EditorQuiz): string | null {
   return null
 }
 
-function toEditorQuiz(quiz: Quiz): EditorQuiz { return { id: quiz.id, title: quiz.title, description: quiz.description, coverImageUrl: quiz.coverImageUrl, timing: quiz.timing ?? { introDurationSeconds: 5, answerDurationSeconds: 20, revealDurationSeconds: 4 }, questions: quiz.questions.map(({ body, questionImageUrl, revealImageUrl, explanation, choices }) => ({ body, questionImageUrl, revealImageUrl, explanation: explanation ?? '', choices: choices.map(({ body: choiceBody, isCorrect }) => ({ body: choiceBody, isCorrect })) })) } }
+function toEditorQuiz(quiz: Quiz): EditorQuiz { return { id: quiz.id, title: quiz.title, description: quiz.description, coverImageUrl: quiz.coverImageUrl, timing: quiz.timing ?? { introDurationSeconds: 5, answerDurationSeconds: 20, revealDurationSeconds: 4 }, questions: quiz.questions.map(({ position, body, questionImageUrl, revealImageUrl, explanation, choices }, index) => ({ order: position ?? index + 1, body, questionImageUrl, revealImageUrl, explanation: explanation ?? '', choices: choices.map(({ body: choiceBody, isCorrect }) => ({ body: choiceBody, isCorrect })) })) } }
+
+export function orderedQuizInput(quiz: EditorQuiz): QuizInput {
+  return { ...quiz, questions: quiz.questions.map((question, index) => ({ question, index })).sort((left, right) => (left.question.order ?? left.index + 1) - (right.question.order ?? right.index + 1) || left.index - right.index).map(({ question }) => {
+    const { order: _, ...input } = question
+    return input
+  }) }
+}
 
 export async function persistPendingImages(quizId: string, quiz: EditorQuiz, pendingImages: Map<string, PendingImage>, uploadImage: (quizId: string, file: File) => Promise<string>): Promise<EditorQuiz> {
   let updated = quiz
@@ -49,14 +56,15 @@ export function QuizEditor({ initialQuiz, quizId }: { initialQuiz?: Quiz; quizId
 
   async function submit(event: FormEvent) {
     event.preventDefault()
-    const validationError = validateQuizForSubmission(quiz)
+    const input = orderedQuizInput(quiz)
+    const validationError = validateQuizForSubmission(input)
     if (validationError) { setError(validationError); return }
     setSaving(true); setError(null)
     try {
-      const saved = uploadQuizId ? await quizApi.update(uploadQuizId, quiz) : await quizApi.create(quiz)
+      const saved = uploadQuizId ? await quizApi.update(uploadQuizId, input) : await quizApi.create(input)
       if (!uploadQuizId) setCreatedQuizId(saved.id)
-      const quizWithImages = await persistPendingImages(saved.id, quiz, pendingImages, quizApi.uploadImage)
-      if (pendingImages.size) await quizApi.update(saved.id, quizWithImages)
+      const quizWithImages = await persistPendingImages(saved.id, { ...quiz, questions: input.questions.map((question, index) => ({ ...question, order: index + 1 })) }, pendingImages, quizApi.uploadImage)
+      if (pendingImages.size) await quizApi.update(saved.id, orderedQuizInput(quizWithImages))
       setQuiz(quizWithImages); setPendingImages(new Map())
       router.push(`/host/quizzes/${saved.id}/edit`)
       router.refresh()
@@ -75,7 +83,7 @@ export function QuizEditor({ initialQuiz, quizId }: { initialQuiz?: Quiz; quizId
     </div></fieldset>
     {!uploadQuizId && <p className="rounded bg-amber-50 p-3 text-amber-900">เลือกรูปได้เลย ระบบจะอัปโหลดให้หลังบันทึก Quiz ครั้งแรก</p>}
     {quiz.questions.map((question, index) => <QuestionEditor key={index} question={question} index={index} quizId={uploadQuizId} onPendingImage={(field, file) => setPendingImage(index, field, file)} onChange={(updated) => setQuiz({ ...quiz, questions: quiz.questions.map((item, current) => current === index ? updated : item) })} onRemove={() => setQuiz({ ...quiz, questions: quiz.questions.filter((_, current) => current !== index) })} />)}
-    <button type="button" className="rounded bg-slate-200 px-4 py-2" onClick={() => setQuiz({ ...quiz, questions: [...quiz.questions, blankQuestion()] })}>เพิ่มคำถาม</button>
+    <button type="button" className="rounded bg-slate-200 px-4 py-2" onClick={() => setQuiz({ ...quiz, questions: [...quiz.questions, blankQuestion(quiz.questions.length + 1)] })}>เพิ่มคำถาม</button>
     <div className="flex gap-3"><button type="submit" disabled={saving} className="rounded bg-purple-700 px-5 py-3 font-bold text-white disabled:opacity-50">{saving ? 'กำลังบันทึก…' : 'บันทึก Quiz'}</button><button type="button" className="rounded border px-5 py-3" onClick={() => router.push('/host')}>ยกเลิก</button></div>
   </form>
 }
